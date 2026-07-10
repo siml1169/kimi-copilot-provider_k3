@@ -7,12 +7,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/kimi-copilot-provider.git"
+    "url": "https://github.com/DimQ1/kimi-copilot-provider.git"
   },
   "bugs": {
-    "url": "https://github.com/your-username/kimi-copilot-provider/issues"
+    "url": "https://github.com/DimQ1/kimi-copilot-provider/issues"
   },
-  "homepage": "https://github.com/your-username/kimi-copilot-provider#readme",
+  "homepage": "https://github.com/DimQ1/kimi-copilot-provider#readme",
   "engines": {
     "vscode": "^1.93.0"
   },
