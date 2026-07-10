@@ -1,0 +1,234 @@
+{
+  "name": "kimi-copilot-provider",
+  "displayName": "Kimi Copilot Provider",
+  "description": "Use Kimi K2/K2.7 Code models as a custom language model provider for GitHub Copilot Chat",
+  "version": "1.3.0",
+  "publisher": "kimi-ext",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/kimi-copilot-provider.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/kimi-copilot-provider/issues"
+  },
+  "homepage": "https://github.com/your-username/kimi-copilot-provider#readme",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onLanguageModelChatProvider:kimi-copilot"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "kimi-copilot",
+        "displayName": "Kimi Copilot Provider",
+        "managementCommand": "kimi-copilot.openSettings"
+      }
+    ],
+    "commands": [
+      {
+        "command": "kimi-copilot.setApiKey",
+        "title": "Set API Key",
+        "category": "Kimi Copilot"
+      },
+      {
+        "command": "kimi-copilot.selectModel",
+        "title": "Select Default Model",
+        "category": "Kimi Copilot"
+      },
+      {
+        "command": "kimi-copilot.editModelConfig",
+        "title": "Edit Model Configuration",
+        "category": "Kimi Copilot"
+      },
+      {
+        "command": "kimi-copilot.testConnection",
+        "title": "Test Connection",
+        "category": "Kimi Copilot"
+      },
+      {
+        "command": "kimi-copilot.openSettings",
+        "title": "Open Settings",
+        "category": "Kimi Copilot"
+      }
+    ],
+    "configuration": {
+      "title": "Kimi Copilot",
+      "properties": {
+        "kimiCopilot.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "DEPRECATED: API key is now stored securely via the 'Kimi Copilot: Set API Key' command."
+        },
+        "kimiCopilot.baseUrl": {
+          "type": "string",
+          "default": "https://api.kimi.com",
+          "description": "Base URL for the Kimi API. Change for self-hosted or proxied deployments."
+        },
+        "kimiCopilot.endpoint": {
+          "type": "string",
+          "default": "https://api.kimi.com/coding/v1/chat/completions",
+          "description": "Full Kimi API endpoint URL. Overrides baseUrl when set to a non-default value."
+        },
+        "kimiCopilot.modelIdOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "Override API model IDs sent for each picker model. Example: { \"kimi-for-coding\": \"your-custom-model-id\" }"
+        },
+        "kimiCopilot.model": {
+          "type": "string",
+          "default": "kimi-k2.7-code",
+          "description": "Default Kimi model ID used in chat. Use 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6', or 'kimi-k2.5'."
+        },
+        "kimiCopilot.modelConfigs": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "default": {},
+          "description": "Per-model overrides. Key is the picker model ID. Example: { \"kimi-k2.7-code\": { maxInputTokens: 256000, maxOutputTokens: 32768, temperature: 1.0, topP: 0.95, thinking: { type: \"enabled\" }, systemPrompt: \"...\" } }.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "overrideModelId": {
+                "type": "string",
+                "description": "Override API model ID sent for this picker model."
+              },
+              "maxInputTokens": {
+                "type": "number",
+                "minimum": 1,
+                "description": "Max input tokens reported to Copilot Chat for this model."
+              },
+              "maxOutputTokens": {
+                "type": "number",
+                "minimum": 1,
+                "description": "Max output tokens for this model."
+              },
+              "temperature": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2,
+                "description": "Sampling temperature for this model."
+              },
+              "topP": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Top-p sampling for this model."
+              },
+              "presencePenalty": {
+                "type": "number",
+                "minimum": -2,
+                "maximum": 2,
+                "description": "Presence penalty for this model."
+              },
+              "frequencyPenalty": {
+                "type": "number",
+                "minimum": -2,
+                "maximum": 2,
+                "description": "Frequency penalty for this model."
+              },
+              "thinking": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "enabled",
+                      "disabled"
+                    ],
+                    "description": "Thinking mode. Kimi K2.7 requires enabled."
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "systemPrompt": {
+                "type": "string",
+                "description": "System prompt used for this model."
+              },
+              "toolCalling": {
+                "type": "boolean",
+                "description": "Enable tool calling for this model."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "kimiCopilot.temperature": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature for generation (0–2). Per-model value in modelConfigs takes precedence."
+        },
+        "kimiCopilot.maxTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 32768,
+          "description": "Maximum output tokens. Set to 0 for model default. Per-model value in modelConfigs takes precedence."
+        },
+        "kimiCopilot.topP": {
+          "type": "number",
+          "default": 0.95,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Top-p (nucleus) sampling. Kimi K2.7 Code API only supports 0.95; this value is always used."
+        },
+        "kimiCopilot.presencePenalty": {
+          "type": "number",
+          "default": 0.0,
+          "minimum": -2,
+          "maximum": 2,
+          "description": "Presence penalty for new tokens. Kimi K2.7 Code requires 0.0."
+        },
+        "kimiCopilot.frequencyPenalty": {
+          "type": "number",
+          "default": 0.0,
+          "minimum": -2,
+          "maximum": 2,
+          "description": "Frequency penalty for repeated tokens. Kimi K2.7 Code requires 0.0."
+        },
+        "kimiCopilot.timeout": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 1000,
+          "description": "Request timeout in milliseconds."
+        },
+        "kimiCopilot.enableStreaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable SSE streaming responses."
+        },
+        "kimiCopilot.systemPrompt": {
+          "type": "string",
+          "default": "You are Kimi, an AI assistant provided by Moonshot AI. You are proficient in Chinese and English conversations. You provide users with safe, helpful, and accurate answers. You will reject any questions involving terrorism, racism, or explicit content. Moonshot AI is a proper noun and should not be translated.",
+          "description": "System prompt sent with every request. Can be overridden per model in modelConfigs."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.93.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

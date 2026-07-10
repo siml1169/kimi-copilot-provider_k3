@@ -1,0 +1,585 @@
+import * as vscode from 'vscode';
+import { ConfigurationManager } from './config';
+import { MODELS, toChatInfo, getModelCapabilities, getMaxOutputTokens, getModelDefaults } from './models';
+import type { KimiMessage, KimiTool, KimiToolCall, KimiRequest, KimiStreamChunk } from './types';
+
+// ═══════════════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════════════
+
+const DEFAULT_ENDPOINT = 'https://api.kimi.com/coding/v1/chat/completions';
+
+// ═══════════════════════════════════════════════════════════════════════
+// Provider class — implements the non-generic LanguageModelChatProvider
+// ═══════════════════════════════════════════════════════════════════════
+
+export class KimiChatProvider implements vscode.LanguageModelChatProvider {
+
+    private readonly _onDidChange = new vscode.EventEmitter<void>();
+    readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
+
+    private readonly outputChannel: vscode.LogOutputChannel;
+
+    constructor(private readonly configManager: ConfigurationManager) {
+        this.outputChannel = vscode.window.createOutputChannel('Kimi Copilot', { log: true });
+
+        // Watch for API key / config changes and refresh the model picker.
+        configManager.onDidChange(() => {
+            this.outputChannel.info('Configuration changed, refreshing model picker');
+            this._onDidChange.fire();
+        });
+    }
+
+    /** Force Copilot Chat to re-query model information. */
+    refreshModelPicker(): void {
+        this._onDidChange.fire();
+    }
+
+    // ── Model information ──────────────────────────────────────────
+
+    async provideLanguageModelChatInformation(
+        _options: vscode.PrepareLanguageModelChatModelOptions,
+        _token: vscode.CancellationToken,
+    ): Promise<vscode.LanguageModelChatInformation[]> {
+        const hasApiKey = !!(await this.configManager.getApiKey());
+        return MODELS.map((model) => toChatInfo(model, hasApiKey, this.configManager.getModelConfig(model.id)));
+    }
+
+    // ── Chat response ──────────────────────────────────────────────
+
+    async provideLanguageModelChatResponse(
+        modelInfo: vscode.LanguageModelChatInformation,
+        messages: readonly vscode.LanguageModelChatRequestMessage[],
+        options: vscode.ProvideLanguageModelChatResponseOptions,
+        progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+        token: vscode.CancellationToken,
+    ): Promise<void> {
+        const apiKey = await this.configManager.getApiKey();
+        if (!apiKey) {
+            throw new vscode.LanguageModelError(
+                'Kimi API key is not configured. Run "Kimi Copilot: Set API Key".',
+            );
+        }
+
+        const endpoint = this.configManager.getEndpoint() || DEFAULT_ENDPOINT;
+        const modelName = this.configManager.getApiModelId(modelInfo.id);
+        const modelConfig = this.configManager.getModelConfig(modelInfo.id);
+        const modelDefaults = getModelDefaults(modelInfo.id);
+
+        // Effective parameters: model config > global setting > hard-coded model default.
+        const temperature =
+            modelConfig.temperature ??
+            this.configManager.getTemperature() ??
+            modelDefaults?.temperature ??
+            1.0;
+        const topP =
+            modelConfig.topP ?? this.configManager.getTopP() ?? modelDefaults?.topP ?? 0.95;
+        const presencePenalty =
+            modelConfig.presencePenalty ??
+            this.configManager.getPresencePenalty(modelInfo.id) ??
+            0.0;
+        const frequencyPenalty =
+            modelConfig.frequencyPenalty ??
+            this.configManager.getFrequencyPenalty(modelInfo.id) ??
+            0.0;
+        const thinking =
+            modelConfig.thinking ??
+            this.configManager.getThinking(modelInfo.id) ??
+            modelDefaults?.thinking;
+
+        const maxTokensSetting = this.configManager.getMaxTokens(modelInfo.id);
+        const maxOutputTokens = modelConfig.maxOutputTokens ?? getMaxOutputTokens(modelInfo.id);
+        const maxTokens = maxTokensSetting > 0 ? maxTokensSetting : maxOutputTokens;
+
+        const enableStreaming = this.configManager.getEnableStreaming();
+        const timeout = this.configManager.getTimeout();
+        const systemPrompt = this.configManager.getSystemPrompt(modelInfo.id);
+
+        const capabilities = getModelCapabilities(modelInfo.id);
+        const toolCallingEnabled = modelConfig.toolCalling ?? capabilities?.toolCalling ?? false;
+
+        // Convert messages to API format and prepend system prompt
+        const allMessages = convertMessages(messages);
+        if (!allMessages.some((m) => m.role === 'system')) {
+            allMessages.unshift({ role: 'system', content: systemPrompt });
+        }
+
+        const request: KimiRequest = {
+            model: modelName,
+            messages: allMessages,
+            stream: enableStreaming,
+            temperature,
+            top_p: topP,
+            max_tokens: maxTokens,
+            presence_penalty: presencePenalty,
+            frequency_penalty: frequencyPenalty,
+        };
+
+        if (thinking) {
+            request.thinking = thinking;
+        }
+
+        // Kimi K2.7 Code API only accepts top_p: 0.95 for its models.
+        // Always clamp to 0.95 regardless of user setting.
+        request.top_p = 0.95;
+
+        // Convert tools if the model supports tool calling
+        const tools = convertTools(toolCallingEnabled, options.tools);
+        if (tools && tools.length > 0) {
+            request.tools = tools;
+            request.tool_choice = toolCallingEnabled ? 'auto' : 'none';
+        }
+
+        this.outputChannel.info(
+            `→ ${allMessages.length} messages + ${tools?.length ?? 0} tools → ${endpoint} (model: ${modelName})`,
+        );
+
+        try {
+            const response = await this.fetchWithTimeout(
+                endpoint,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${apiKey}`,
+                        Accept: enableStreaming ? 'text/event-stream' : 'application/json',
+                    },
+                    body: JSON.stringify(request),
+                },
+                timeout,
+                token,
+            );
+
+            if (!response.ok) {
+                const errText = await response.text().catch(() => 'unknown');
+                throw this.toLanguageModelError(response.status, errText);
+            }
+
+            if (enableStreaming) {
+                await streamSSEResponse(response, progress, token, this.outputChannel);
+            } else {
+                await completeResponse(response, progress, this.outputChannel);
+            }
+        } catch (err) {
+            this.outputChannel.error('Request failed', err);
+            if (err instanceof vscode.LanguageModelError) {
+                throw err;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            // Improve network-related diagnostics
+            if (message.includes('fetch failed') || message.includes('ENOTFOUND') || message.includes('ECONNREFUSED')) {
+                throw new vscode.LanguageModelError(
+                    `Unable to reach Kimi API at ${endpoint}. Check your network connection and endpoint configuration.`,
+                    { cause: err },
+                );
+            }
+            if (message.includes('aborted') || message.includes('AbortError')) {
+                throw new vscode.LanguageModelError(
+                    'Kimi API request was cancelled or timed out.',
+                    { cause: err },
+                );
+            }
+            throw new vscode.LanguageModelError(message, { cause: err });
+        }
+    }
+
+    // ── Token counting ─────────────────────────────────────────────
+
+    async provideTokenCount(
+        _model: vscode.LanguageModelChatInformation,
+        text: string | vscode.LanguageModelChatRequestMessage,
+        _token: vscode.CancellationToken,
+    ): Promise<number> {
+        if (typeof text === 'string') {
+            return Math.max(1, Math.ceil(text.length / 3.5));
+        }
+        return Math.max(1, Math.ceil(extractTextContent(text).length / 3.5));
+    }
+
+    // ── Cleanup ────────────────────────────────────────────────────
+
+    dispose(): void {
+        this.outputChannel.dispose();
+        this._onDidChange.dispose();
+    }
+
+    // ── Fetch with timeout and cancellation ─────────────────────────
+
+    private async fetchWithTimeout(
+        url: string,
+        init: RequestInit,
+        timeoutMs: number,
+        token: vscode.CancellationToken,
+    ): Promise<Response> {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+        const disposables: vscode.Disposable[] = [];
+        disposables.push(token.onCancellationRequested(() => controller.abort()));
+
+        try {
+            return await fetch(url, { ...init, signal: controller.signal });
+        } catch (err) {
+            if (err instanceof Error && err.name === 'AbortError') {
+                throw new Error(`Kimi API request timed out after ${timeoutMs}ms or was cancelled.`);
+            }
+            throw err;
+        } finally {
+            clearTimeout(timeout);
+            disposables.forEach((d) => d.dispose());
+        }
+    }
+
+    // ── Error mapping ───────────────────────────────────────────────
+
+    private toLanguageModelError(status: number, body: string): vscode.LanguageModelError {
+        switch (status) {
+            case 401:
+                return new vscode.LanguageModelError(
+                    'Invalid Kimi API key (401). Run "Kimi Copilot: Set API Key" to update.',
+                );
+            case 403:
+                return new vscode.LanguageModelError(
+                    'Access denied by Kimi API (403).',
+                );
+            case 429:
+                return new vscode.LanguageModelError(
+                    'Kimi API rate limit exceeded (429). Retry later.',
+                );
+            case 500:
+            case 502:
+            case 503:
+                return new vscode.LanguageModelError(
+                    'Kimi API server error. Retry later.',
+                );
+            default:
+                return new vscode.LanguageModelError(
+                    `Kimi API error ${status}: ${body.slice(0, 300)}`,
+                );
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Helpers — message conversion
+// ═══════════════════════════════════════════════════════════════════════
+
+function roleToString(role: vscode.LanguageModelChatMessageRole): string {
+    switch (role) {
+        case vscode.LanguageModelChatMessageRole.User:
+            return 'user';
+        case vscode.LanguageModelChatMessageRole.Assistant:
+            return 'assistant';
+        default:
+            return 'user';
+    }
+}
+
+function extractTextContent(
+    msg: vscode.LanguageModelChatMessage | vscode.LanguageModelChatRequestMessage,
+): string {
+    const parts: string[] = [];
+    for (const part of msg.content) {
+        if (part instanceof vscode.LanguageModelTextPart) {
+            parts.push(part.value);
+        } else if (part instanceof vscode.LanguageModelPromptTsxPart) {
+            parts.push(typeof part.value === 'string' ? part.value : JSON.stringify(part.value));
+        }
+    }
+    return parts.join('\n');
+}
+
+function convertMessages(
+    messages: readonly vscode.LanguageModelChatRequestMessage[],
+): KimiMessage[] {
+    const result: KimiMessage[] = [];
+
+    for (const message of messages) {
+        const role = roleToString(message.role);
+        let content = '';
+        const toolCalls: KimiToolCall[] = [];
+        const toolResults: Array<{ callId: string; content: string }> = [];
+
+        for (const part of message.content) {
+            if (part instanceof vscode.LanguageModelTextPart) {
+                content += part.value;
+            } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                toolCalls.push({
+                    id: part.callId,
+                    type: 'function',
+                    function: {
+                        name: part.name,
+                        arguments: JSON.stringify(part.input),
+                    },
+                });
+            } else if (part instanceof vscode.LanguageModelToolResultPart) {
+                const toolContentParts: string[] = [];
+                for (const item of part.content) {
+                    if (item instanceof vscode.LanguageModelTextPart) {
+                        toolContentParts.push(item.value);
+                    } else if (item instanceof vscode.LanguageModelPromptTsxPart) {
+                        toolContentParts.push(
+                            typeof item.value === 'string' ? item.value : JSON.stringify(item.value),
+                        );
+                    }
+                }
+                toolResults.push({
+                    callId: part.callId,
+                    content: toolContentParts.length > 0 ? toolContentParts.join('\n') : JSON.stringify(part.content),
+                });
+            }
+        }
+
+        if (role === 'assistant') {
+            if (content || toolCalls.length > 0) {
+                const msg: KimiMessage = {
+                    role: 'assistant',
+                    content: content || '',
+                };
+                if (toolCalls.length > 0) {
+                    msg.tool_calls = toolCalls;
+                }
+                result.push(msg);
+            }
+        } else {
+            if (content) {
+                result.push({ role: role as 'user' | 'assistant', content });
+            }
+        }
+
+        // Tool result messages follow their associated assistant message
+        for (const tr of toolResults) {
+            result.push({
+                role: 'tool',
+                content: tr.content,
+                tool_call_id: tr.callId,
+            });
+        }
+    }
+
+    return result;
+}
+
+function convertTools(
+    toolCallingCapability: boolean | undefined,
+    tools: readonly vscode.LanguageModelChatTool[] | undefined,
+): KimiTool[] | undefined {
+    if (!toolCallingCapability || !tools || tools.length === 0) {
+        return undefined;
+    }
+
+    return tools.map((tool) => ({
+        type: 'function' as const,
+        function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputSchema as Record<string, unknown> | undefined,
+        },
+    }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Non-streaming response
+// ═══════════════════════════════════════════════════════════════════════
+
+async function completeResponse(
+    response: Response,
+    progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+    outputChannel: vscode.LogOutputChannel,
+): Promise<void> {
+    const data = (await response.json()) as {
+        choices: Array<{
+            message?: {
+                role?: string;
+                content?: string | null;
+                tool_calls?: KimiToolCall[];
+            };
+            finish_reason: string | null;
+        }>;
+    };
+
+    const message = data.choices[0]?.message;
+    if (!message) {
+        outputChannel.warn('Empty response from Kimi API');
+        return;
+    }
+
+    if (message.content) {
+        progress.report(new vscode.LanguageModelTextPart(message.content));
+    }
+
+    if (message.tool_calls) {
+        for (const call of message.tool_calls) {
+            progress.report(
+                new vscode.LanguageModelToolCallPart(
+                    call.id,
+                    call.function.name,
+                    safeParseArgs(call.function.arguments),
+                ),
+            );
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SSE streaming — OpenAI-compatible
+// ═══════════════════════════════════════════════════════════════════════
+
+async function streamSSEResponse(
+    response: Response,
+    progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+    token: vscode.CancellationToken,
+    outputChannel: vscode.LogOutputChannel,
+): Promise<void> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new Error('No response body from Kimi API');
+    }
+
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    const pendingToolCalls = new Map<
+        number,
+        { id: string; name: string; args: string }
+    >();
+
+    try {
+        while (true) {
+            if (token.isCancellationRequested) {
+                await reader.cancel();
+                return;
+            }
+
+            let readResult: ReadableStreamReadResult<Uint8Array>;
+            try {
+                readResult = await reader.read();
+            } catch (err) {
+                if (err instanceof Error && err.name === 'AbortError') {
+                    outputChannel.warn('SSE stream aborted');
+                    return;
+                }
+                throw err;
+            }
+
+            const { done, value } = readResult;
+            if (done) {
+                // Emit any remaining tool calls before finishing
+                if (pendingToolCalls.size > 0) {
+                    for (const call of pendingToolCalls.values()) {
+                        if (call.id && call.name) {
+                            progress.report(
+                                new vscode.LanguageModelToolCallPart(
+                                    call.id,
+                                    call.name,
+                                    safeParseArgs(call.args),
+                                ),
+                            );
+                        }
+                    }
+                    pendingToolCalls.clear();
+                }
+                break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) {
+                    continue;
+                }
+
+                const payload = trimmed.slice(5).trim();
+                if (payload === '[DONE]') {
+                    // Emit any remaining tool calls before returning
+                    if (pendingToolCalls.size > 0) {
+                        for (const call of pendingToolCalls.values()) {
+                            if (call.id && call.name) {
+                                progress.report(
+                                    new vscode.LanguageModelToolCallPart(
+                                        call.id,
+                                        call.name,
+                                        safeParseArgs(call.args),
+                                    ),
+                                );
+                            }
+                        }
+                        pendingToolCalls.clear();
+                    }
+                    return;
+                }
+
+                try {
+                    const parsed = JSON.parse(payload) as KimiStreamChunk;
+                    const delta = parsed.choices[0]?.delta;
+                    if (!delta) {
+                        continue;
+                    }
+
+                    // Text content
+                    if (delta.content) {
+                        progress.report(new vscode.LanguageModelTextPart(delta.content));
+                    }
+
+                    // Tool calls (accumulate across chunks)
+                    if (delta.tool_calls) {
+                        for (const tc of delta.tool_calls) {
+                            let existing = pendingToolCalls.get(tc.index);
+                            if (!existing) {
+                                existing = { id: '', name: '', args: '' };
+                                pendingToolCalls.set(tc.index, existing);
+                            }
+
+                            if (tc.id) {
+                                existing.id = tc.id;
+                            }
+                            if (tc.function?.name) {
+                                existing.name += tc.function.name;
+                            }
+                            if (tc.function?.arguments) {
+                                existing.args += tc.function.arguments;
+                            }
+                        }
+                    }
+
+                    // Emit completed tool calls on finish
+                    if (
+                        parsed.choices[0].finish_reason &&
+                        pendingToolCalls.size > 0
+                    ) {
+                        for (const call of pendingToolCalls.values()) {
+                            if (call.id && call.name) {
+                                progress.report(
+                                    new vscode.LanguageModelToolCallPart(
+                                        call.id,
+                                        call.name,
+                                        safeParseArgs(call.args),
+                                    ),
+                                );
+                            }
+                        }
+                        pendingToolCalls.clear();
+                    }
+                } catch (parseErr) {
+                    outputChannel.warn('Skipping malformed SSE chunk', parseErr);
+                }
+            }
+        }
+    } finally {
+        try {
+            reader.releaseLock();
+        } catch {
+            /* already released */
+        }
+    }
+}
+
+function safeParseArgs(args: string): Record<string, unknown> {
+    try {
+        return JSON.parse(args) as Record<string, unknown>;
+    } catch {
+        return {};
+    }
+}
