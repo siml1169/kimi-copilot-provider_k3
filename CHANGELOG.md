@@ -15,12 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added secure API key storage via VS Code SecretStorage with plain-text fallback for migration.
 - Added `Kimi Copilot: Test Connection` command.
 - Added `Kimi Copilot: Edit Model Configuration` command.
+- Added exponential backoff retry for transient Kimi API errors (429, 5xx).
+- Added request latency logging.
+- Added unit tests for message/tool conversion helpers.
+- Added Prettier configuration and `npm run format` script.
 
 ### Changed
 - Updated model registry to Kimi K2.x series: `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5`.
 - README updated to reflect the current model lineup and settings.
 - Improved SSE streaming and non-streaming response handling.
 - Improved error mapping for Kimi API HTTP status codes and network failures.
+- `Kimi Copilot: Test Connection` now performs a real lightweight API call instead of only listing models.
+- `top_p` now respects per-model defaults instead of being hard-coded to 0.95 for every model.
+- Upgraded TypeScript `moduleResolution` from `node10` to `node16`.
 
 ### Deprecated
 - `kimiCopilot.apiKey` plain-text setting is deprecated; use the `Kimi Copilot: Set API Key` command instead.
@@ -28,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Tool calling conversion now correctly accumulates streamed tool call deltas.
 - System prompt is only prepended when the request does not already contain one.
+- Fixed `Disposable` leak: configuration change listener is now properly disposed.
+- Fixed model picker behavior in silent mode by returning an empty model list when `silent` is requested.
 
 ## [1.3.0] - 2026-07-10
 

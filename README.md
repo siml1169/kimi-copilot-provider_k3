@@ -59,7 +59,8 @@ src/
 ├── extension.ts   # activate(): registers provider and commands
 ├── models.ts      # Model registry + LanguageModelChatInformation mapping
 ├── provider.ts    # KimiChatProvider implements LanguageModelChatProvider
-└── types.ts       # Shared API and model types
+├── types.ts       # Shared API and model types
+└── test/          # Unit tests
 ```
 
 Provider implements the 3 mandatory methods of `LanguageModelChatProvider`:
@@ -89,6 +90,8 @@ Provider implements the 3 mandatory methods of `LanguageModelChatProvider`:
 | Compile (watch) | `npm run watch` |
 | Launch extension | `F5` (Extension Development Host) |
 | Package .vsix | `npx @vscode/vsce package --no-dependencies` |
+| Run tests | `npm test` |
+| Format code | `npm run format` |
 
 ## Requirements
 

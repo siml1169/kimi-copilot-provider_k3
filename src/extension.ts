@@ -8,6 +8,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     context.subscriptions.push(
         vscode.lm.registerLanguageModelChatProvider('kimi-copilot', provider),
+        provider,
     );
 
     registerCommands(context, configManager, provider);
@@ -52,10 +53,10 @@ function registerCommands(
         }),
 
         vscode.commands.registerCommand('kimi-copilot.selectModel', async () => {
-            const { MODELS } = await import('./models');
+            const { MODELS } = await import('./models.js');
             const current = configManager.getModel();
 
-            const items = MODELS.map((m) => ({
+            const items: vscode.QuickPickItem[] = MODELS.map((m) => ({
                 label: m.name,
                 description: m.id,
                 detail: m.detail,
@@ -75,10 +76,10 @@ function registerCommands(
         }),
 
         vscode.commands.registerCommand('kimi-copilot.editModelConfig', async () => {
-            const { MODELS } = await import('./models');
+            const { MODELS } = await import('./models.js');
 
             const selected = await vscode.window.showQuickPick(
-                MODELS.map((m) => ({
+                MODELS.map((m): vscode.QuickPickItem => ({
                     label: m.name,
                     description: m.id,
                     detail: m.detail,
@@ -90,7 +91,7 @@ function registerCommands(
                 return;
             }
 
-            const modelId = selected.description;
+            const modelId = selected.description ?? '';
             const currentConfig = configManager.getModelConfig(modelId);
             const model = MODELS.find((m) => m.id === modelId);
 
@@ -133,11 +134,8 @@ function registerCommands(
             }
 
             try {
-                const models = await provider.provideLanguageModelChatInformation(
-                    {} as vscode.PrepareLanguageModelChatModelOptions,
-                    new vscode.CancellationTokenSource().token,
-                );
-                vscode.window.showInformationMessage(`Connection OK. ${models.length} Kimi model(s) available.`);
+                await provider.testConnection(configManager.getModel());
+                vscode.window.showInformationMessage('Kimi connection OK.');
             } catch (err) {
                 vscode.window.showErrorMessage(`Kimi connection failed: ${err instanceof Error ? err.message : String(err)}`);
             }

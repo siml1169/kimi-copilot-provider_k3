@@ -19,15 +19,18 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
     private readonly outputChannel: vscode.LogOutputChannel;
+    private readonly disposables: vscode.Disposable[] = [];
 
     constructor(private readonly configManager: ConfigurationManager) {
         this.outputChannel = vscode.window.createOutputChannel('Kimi Copilot', { log: true });
 
         // Watch for API key / config changes and refresh the model picker.
-        configManager.onDidChange(() => {
-            this.outputChannel.info('Configuration changed, refreshing model picker');
-            this._onDidChange.fire();
-        });
+        this.disposables.push(
+            configManager.onDidChange(() => {
+                this.outputChannel.info('Configuration changed, refreshing model picker');
+                this._onDidChange.fire();
+            }),
+        );
     }
 
     /** Force Copilot Chat to re-query model information. */
@@ -41,6 +44,8 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         _options: vscode.PrepareLanguageModelChatModelOptions,
         _token: vscode.CancellationToken,
     ): Promise<vscode.LanguageModelChatInformation[]> {
+        // Always return models — the `silent` flag means "don't prompt for credentials",
+        // not "don't report models". The official sample ignores it entirely.
         const hasApiKey = !!(await this.configManager.getApiKey());
         return MODELS.map((model) => toChatInfo(model, hasApiKey, this.configManager.getModelConfig(model.id)));
     }
@@ -53,6 +58,42 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         options: vscode.ProvideLanguageModelChatResponseOptions,
         progress: vscode.Progress<vscode.LanguageModelResponsePart>,
         token: vscode.CancellationToken,
+    ): Promise<void> {
+        await this.doChatRequest(modelInfo, messages, options, progress, token);
+    }
+
+    /**
+     * Sends a lightweight completion request to verify connectivity and credentials.
+     * This is exposed for the "Test Connection" command.
+     */
+    async testConnection(modelId?: string, token?: vscode.CancellationToken): Promise<void> {
+        const targetModel = modelId ?? this.configManager.getModel();
+        const modelInfo = MODELS.find((m) => m.id === targetModel);
+        if (!modelInfo) {
+            throw new vscode.LanguageModelError(`Unknown model: ${targetModel}`);
+        }
+
+        const fakeProgress: vscode.Progress<vscode.LanguageModelResponsePart> = {
+            report: () => { /* no-op */ },
+        };
+
+        await this.doChatRequest(
+            toChatInfo(modelInfo, true, this.configManager.getModelConfig(modelInfo.id)),
+            [vscode.LanguageModelChatMessage.User('ping')],
+            { toolMode: vscode.LanguageModelChatToolMode.Auto },
+            fakeProgress,
+            token ?? new vscode.CancellationTokenSource().token,
+            { testMode: true },
+        );
+    }
+
+    private async doChatRequest(
+        modelInfo: vscode.LanguageModelChatInformation,
+        messages: readonly vscode.LanguageModelChatRequestMessage[],
+        options: vscode.ProvideLanguageModelChatResponseOptions,
+        progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+        token: vscode.CancellationToken,
+        extras?: { testMode?: boolean },
     ): Promise<void> {
         const apiKey = await this.configManager.getApiKey();
         if (!apiKey) {
@@ -91,7 +132,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         const maxOutputTokens = modelConfig.maxOutputTokens ?? getMaxOutputTokens(modelInfo.id);
         const maxTokens = maxTokensSetting > 0 ? maxTokensSetting : maxOutputTokens;
 
-        const enableStreaming = this.configManager.getEnableStreaming();
+        const enableStreaming = extras?.testMode ? false : this.configManager.getEnableStreaming();
         const timeout = this.configManager.getTimeout();
         const systemPrompt = this.configManager.getSystemPrompt(modelInfo.id);
 
@@ -110,7 +151,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             stream: enableStreaming,
             temperature,
             top_p: topP,
-            max_tokens: maxTokens,
+            max_tokens: extras?.testMode ? 1 : maxTokens,
             presence_penalty: presencePenalty,
             frequency_penalty: frequencyPenalty,
         };
@@ -119,9 +160,10 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             request.thinking = thinking;
         }
 
-        // Kimi K2.7 Code API only accepts top_p: 0.95 for its models.
-        // Always clamp to 0.95 regardless of user setting.
-        request.top_p = 0.95;
+        // K2.7 API requires top_p: 0.95 exactly — enforce even if user overrides.
+        if (modelInfo.id.startsWith('kimi-k2.7')) {
+            request.top_p = modelDefaults?.topP ?? 0.95;
+        }
 
         // Convert tools if the model supports tool calling
         const tools = convertTools(toolCallingEnabled, options.tools);
@@ -134,8 +176,9 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             `→ ${allMessages.length} messages + ${tools?.length ?? 0} tools → ${endpoint} (model: ${modelName})`,
         );
 
+        const startTime = Date.now();
         try {
-            const response = await this.fetchWithTimeout(
+            const response = await this.fetchWithRetry(
                 endpoint,
                 {
                     method: 'POST',
@@ -160,6 +203,8 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             } else {
                 await completeResponse(response, progress, this.outputChannel);
             }
+
+            this.outputChannel.info(`← completed in ${Date.now() - startTime}ms`);
         } catch (err) {
             this.outputChannel.error('Request failed', err);
             if (err instanceof vscode.LanguageModelError) {
@@ -201,9 +246,37 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     dispose(): void {
         this.outputChannel.dispose();
         this._onDidChange.dispose();
+        this.disposables.forEach((d) => d.dispose());
+        this.disposables.length = 0;
     }
 
-    // ── Fetch with timeout and cancellation ─────────────────────────
+    // ── Fetch with timeout, retry and cancellation ─────────────────
+
+    private async fetchWithRetry(
+        url: string,
+        init: RequestInit,
+        timeoutMs: number,
+        token: vscode.CancellationToken,
+        attempt = 1,
+    ): Promise<Response> {
+        try {
+            return await this.fetchWithTimeout(url, init, timeoutMs, token);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const isRetryable =
+                err instanceof vscode.LanguageModelError &&
+                (message.includes('429') || message.includes('server error'));
+
+            if (isRetryable && attempt < 3) {
+                const delay = Math.min(1000 * 2 ** attempt, 8000);
+                this.outputChannel.warn(`Retryable error, waiting ${delay}ms before attempt ${attempt + 1}`);
+                await new Promise((resolve) => setTimeout(resolve, delay));
+                return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1);
+            }
+
+            throw err;
+        }
+    }
 
     private async fetchWithTimeout(
         url: string,
@@ -275,7 +348,7 @@ function roleToString(role: vscode.LanguageModelChatMessageRole): string {
     }
 }
 
-function extractTextContent(
+export function extractTextContent(
     msg: vscode.LanguageModelChatMessage | vscode.LanguageModelChatRequestMessage,
 ): string {
     const parts: string[] = [];
@@ -289,7 +362,7 @@ function extractTextContent(
     return parts.join('\n');
 }
 
-function convertMessages(
+export function convertMessages(
     messages: readonly vscode.LanguageModelChatRequestMessage[],
 ): KimiMessage[] {
     const result: KimiMessage[] = [];
@@ -360,7 +433,7 @@ function convertMessages(
     return result;
 }
 
-function convertTools(
+export function convertTools(
     toolCallingCapability: boolean | undefined,
     tools: readonly vscode.LanguageModelChatTool[] | undefined,
 ): KimiTool[] | undefined {
@@ -443,6 +516,24 @@ async function streamSSEResponse(
         { id: string; name: string; args: string }
     >();
 
+    const emitPendingToolCalls = (): void => {
+        if (pendingToolCalls.size === 0) {
+            return;
+        }
+        for (const call of pendingToolCalls.values()) {
+            if (call.id && call.name) {
+                progress.report(
+                    new vscode.LanguageModelToolCallPart(
+                        call.id,
+                        call.name,
+                        safeParseArgs(call.args),
+                    ),
+                );
+            }
+        }
+        pendingToolCalls.clear();
+    };
+
     try {
         while (true) {
             if (token.isCancellationRequested) {
@@ -463,21 +554,7 @@ async function streamSSEResponse(
 
             const { done, value } = readResult;
             if (done) {
-                // Emit any remaining tool calls before finishing
-                if (pendingToolCalls.size > 0) {
-                    for (const call of pendingToolCalls.values()) {
-                        if (call.id && call.name) {
-                            progress.report(
-                                new vscode.LanguageModelToolCallPart(
-                                    call.id,
-                                    call.name,
-                                    safeParseArgs(call.args),
-                                ),
-                            );
-                        }
-                    }
-                    pendingToolCalls.clear();
-                }
+                emitPendingToolCalls();
                 break;
             }
 
@@ -493,21 +570,7 @@ async function streamSSEResponse(
 
                 const payload = trimmed.slice(5).trim();
                 if (payload === '[DONE]') {
-                    // Emit any remaining tool calls before returning
-                    if (pendingToolCalls.size > 0) {
-                        for (const call of pendingToolCalls.values()) {
-                            if (call.id && call.name) {
-                                progress.report(
-                                    new vscode.LanguageModelToolCallPart(
-                                        call.id,
-                                        call.name,
-                                        safeParseArgs(call.args),
-                                    ),
-                                );
-                            }
-                        }
-                        pendingToolCalls.clear();
-                    }
+                    emitPendingToolCalls();
                     return;
                 }
 
@@ -545,22 +608,8 @@ async function streamSSEResponse(
                     }
 
                     // Emit completed tool calls on finish
-                    if (
-                        parsed.choices[0].finish_reason &&
-                        pendingToolCalls.size > 0
-                    ) {
-                        for (const call of pendingToolCalls.values()) {
-                            if (call.id && call.name) {
-                                progress.report(
-                                    new vscode.LanguageModelToolCallPart(
-                                        call.id,
-                                        call.name,
-                                        safeParseArgs(call.args),
-                                    ),
-                                );
-                            }
-                        }
-                        pendingToolCalls.clear();
+                    if (parsed.choices[0].finish_reason) {
+                        emitPendingToolCalls();
                     }
                 } catch (parseErr) {
                     outputChannel.warn('Skipping malformed SSE chunk', parseErr);

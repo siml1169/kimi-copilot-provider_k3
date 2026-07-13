@@ -78,7 +78,7 @@ export const MODELS: ModelDefinition[] = [
 		},
 		defaults: {
 			temperature: 1.0,
-			topP: 0.95,
+			topP: 1.0,
 			thinking: { type: 'enabled' },
 		},
 	},
