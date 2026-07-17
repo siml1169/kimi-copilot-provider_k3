@@ -1,15 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e3a8a"/>
-      <stop offset="100%" stop-color="#3b82f6"/>
+      <stop offset="0%" stop-color="#4338ca"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
     </linearGradient>
     <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#60a5fa"/>
-      <stop offset="100%" stop-color="#93c5fd"/>
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#c4b5fd"/>
     </linearGradient>
   </defs>
+  <!-- Background -->
   <rect x="16" y="16" width="224" height="224" rx="48" fill="url(#bg)"/>
+  <!-- K logo -->
   <path d="M76 72 L76 184 L108 184 L108 138 L148 184 L188 184 L132 122 L180 72 L142 72 L108 112 L108 72 Z" fill="white"/>
+  <!-- Fork/version badge circle -->
   <circle cx="196" cy="196" r="18" fill="url(#accent)"/>
+  <!-- "3" text in badge -->
+  <text x="196" y="203" font-family="system-ui, sans-serif" font-size="20" font-weight="bold" fill="#4338ca" text-anchor="middle">3</text>
 </svg>

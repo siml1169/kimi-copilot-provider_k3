@@ -11,7 +11,7 @@ export const MODELS: ModelDefinition[] = [
 		name: 'Kimi K2.7 Code',
 		family: 'kimi',
 		version: 'kimi-k2.7-code',
-		detail: 'Most capable coding model (256K context, thinking enabled)',
+		detail: 'Most capable coding model (256K context, thinking always on)',
 		maxInputTokens: 256000,
 		maxOutputTokens: 32768,
 		capabilities: {
@@ -22,7 +22,7 @@ export const MODELS: ModelDefinition[] = [
 		defaults: {
 			temperature: 1.0,
 			topP: 0.95,
-			thinking: { type: 'enabled' },
+			thinking: { type: 'enabled', keep: 'all' },
 		},
 	},
 	{
@@ -41,7 +41,7 @@ export const MODELS: ModelDefinition[] = [
 		defaults: {
 			temperature: 1.0,
 			topP: 0.95,
-			thinking: { type: 'enabled' },
+			thinking: { type: 'enabled', keep: 'all' },
 		},
 	},
 	{
@@ -87,7 +87,7 @@ export const MODELS: ModelDefinition[] = [
 		name: 'Kimi K3',
 		family: 'kimi',
 		version: 'kimi-k3',
-		detail: 'Frontier MoE model (1M context, always-on reasoning, multimodal) — requires endpoint: https://api.moonshot.ai/v1/chat/completions',
+		detail: 'Frontier MoE model (1M context, always-on reasoning, multimodal) — may require separate K3 API key',
 		maxInputTokens: 1048576,
 		maxOutputTokens: 32768,
 		capabilities: {
@@ -97,8 +97,8 @@ export const MODELS: ModelDefinition[] = [
 		},
 		defaults: {
 			temperature: 1.0,
-			topP: 1.0,
-			thinking: { type: 'enabled' },
+			topP: 0.95,
+			reasoning_effort: 'max',
 		},
 	},
 ];

@@ -1,6 +1,8 @@
-# Kimi Copilot Provider
+# Kimi Copilot Provider (K3 Fork)
 
-VS Code extension that registers **Kimi K2/K2.7 Code** models as a custom language model provider for GitHub Copilot Chat. Proxies chat requests to the Kimi API via SSE streaming.
+> **Fork** of [DimQ1/kimi-copilot-provider](https://github.com/DimQ1/kimi-copilot-provider) adding **Kimi K3** support and updated Moonshot API endpoints.
+
+VS Code extension that registers **Kimi K2, K2.7, and K3** models as a custom language model provider for GitHub Copilot Chat. Proxies chat requests to the Kimi (Moonshot) API via SSE streaming.
 
 ## Supported Models
 
@@ -10,14 +12,14 @@ VS Code extension that registers **Kimi K2/K2.7 Code** models as a custom langua
 | `kimi-k2.7-code-highspeed` | `kimi-k2.7-code-highspeed` | 256K / 32K | Faster output (~180 T/s) |
 | `kimi-k2.6` | `kimi-k2.6` | 256K / 32K | Multimodal + thinking |
 | `kimi-k2.5` | `kimi-k2.5` | 256K / 32K | Multimodal + thinking |
-| `kimi-k3` | `kimi-k3` | 1M / 32K | Frontier MoE, always-on reasoning, multimodal — set endpoint to `https://api.moonshot.ai/v1/chat/completions` |
+| `kimi-k3` | `kimi-k3` | 1M / 32K | Frontier MoE, always-on reasoning, multimodal |
 
 ## How It Works
 
-The extension implements the `vscode.lm.LanguageModelChatProvider` API (stabilized in VS Code 1.93+) and forwards chat requests to the Kimi API:
+The extension implements the `vscode.lm.LanguageModelChatProvider` API (stabilized in VS Code 1.93+) and forwards chat requests to the Kimi (Moonshot) API:
 
 ```
-POST https://api.kimi.com/coding/v1/chat/completions
+POST https://api.moonshot.ai/v1/chat/completions
 ```
 
 Kimi's API is OpenAI-compatible and supports SSE streaming.
@@ -42,9 +44,9 @@ Or open VS Code Settings (`Ctrl+,`) and search for `kimiCopilot`:
 | `kimiCopilot.model` | `kimi-k2.7-code` | Default Kimi model ID used in chat |
 | `kimiCopilot.endpoint` | `https://api.kimi.com/coding/v1/chat/completions` | API endpoint |
 | `kimiCopilot.baseUrl` | `https://api.kimi.com` | Base URL for the Kimi API |
-| `kimiCopilot.temperature` | `1.0` | Sampling temperature (fixed at 1.0 by Kimi K2.7 API) |
+| `kimiCopilot.temperature` | `1.0` | Sampling temperature (model-dependent; K2.7 defaults to 1.0) |
 | `kimiCopilot.maxTokens` | `0` | Max output tokens (`0` = model default) |
-| `kimiCopilot.topP` | `0.95` | Fixed to 0.95 by Kimi K2.7 API |
+| `kimiCopilot.topP` | `0.95` | Top-p sampling (model-dependent; K2.7 defaults to 0.95) |
 | `kimiCopilot.systemPrompt` | (see `config.ts`) | System prompt sent with every request |
 | `kimiCopilot.modelConfigs` | `{}` | Per-model overrides for parameters |
 
@@ -107,6 +109,7 @@ Provider implements the 3 mandatory methods of `LanguageModelChatProvider`:
 - [Language Model API Guide](https://code.visualstudio.com/api/extension-guides/ai/language-model)
 - [VS Code lm API Reference](https://code.visualstudio.com/api/references/vscode-api#lm)
 - [Kimi K2.7 Code Quickstart](https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart)
+- [Kimi K3 (Moonshot)](https://platform.moonshot.ai/docs/guide/use-kimi-k3-model)
 - [Kimi Models](https://platform.kimi.ai/docs/models)
 
 ## License

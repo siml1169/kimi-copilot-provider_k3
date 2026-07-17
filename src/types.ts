@@ -33,6 +33,8 @@ export interface KimiUsage {
 	prompt_tokens: number;
 	completion_tokens: number;
 	total_tokens: number;
+	prompt_cache_hit_tokens?: number;
+	prompt_cache_miss_tokens?: number;
 }
 
 export interface KimiRequest {
@@ -44,9 +46,11 @@ export interface KimiRequest {
 	max_tokens?: number;
 	presence_penalty?: number;
 	frequency_penalty?: number;
-	thinking?: { type: 'enabled' | 'disabled' };
+	thinking?: { type: 'enabled' | 'disabled'; keep?: 'all' };
+	reasoning_effort?: 'max';
 	tools?: KimiTool[];
 	tool_choice?: 'none' | 'auto' | 'required';
+	response_format?: { type: 'json_object' | 'text' };
 }
 
 export interface KimiStreamChunk {
@@ -59,6 +63,7 @@ export interface KimiStreamChunk {
 		delta: {
 			role?: string;
 			content?: string;
+			reasoning_content?: string;
 			tool_calls?: Array<{
 				index: number;
 				id?: string;
@@ -90,8 +95,10 @@ export interface ModelDefaults {
 	temperature?: number;
 	/** Top-p sampling the API expects (K2.7 requires 0.95). */
 	topP?: number;
-	/** Thinking mode default (K2.7 requires enabled). */
-	thinking?: { type: 'enabled' | 'disabled' };
+	/** Thinking mode default (K2.7 requires enabled + keep all). */
+	thinking?: { type: 'enabled' | 'disabled'; keep?: 'all' };
+	/** K3-only: reasoning effort level. */
+	reasoning_effort?: 'max';
 }
 
 export interface ModelConfigOverride {

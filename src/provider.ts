@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
 import { ConfigurationManager } from './config';
 import { MODELS, toChatInfo, getModelCapabilities, getMaxOutputTokens, getModelDefaults } from './models';
+import { UsageTracker, type UsageRecord, formatUsageSummary } from './usage';
 import type { KimiMessage, KimiTool, KimiToolCall, KimiRequest, KimiStreamChunk } from './types';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Constants
 // ═══════════════════════════════════════════════════════════════════════
 
-const DEFAULT_ENDPOINT = 'https://api.kimi.com/coding/v1/chat/completions';
+const DEFAULT_ENDPOINT = 'https://api.moonshot.ai/v1/chat/completions';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Provider class — implements the non-generic LanguageModelChatProvider
@@ -20,6 +21,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
 
     private readonly outputChannel: vscode.LogOutputChannel;
     private readonly disposables: vscode.Disposable[] = [];
+    private usageTracker: UsageTracker | undefined;
 
     constructor(private readonly configManager: ConfigurationManager) {
         this.outputChannel = vscode.window.createOutputChannel('Kimi Copilot', { log: true });
@@ -31,6 +33,11 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
                 this._onDidChange.fire();
             }),
         );
+    }
+
+    /** Attach the usage tracker (called from extension.ts). */
+    setUsageTracker(tracker: UsageTracker): void {
+        this.usageTracker = tracker;
     }
 
     /** Force Copilot Chat to re-query model information. */
@@ -95,14 +102,20 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         token: vscode.CancellationToken,
         extras?: { testMode?: boolean },
     ): Promise<void> {
-        const apiKey = await this.configManager.getApiKey();
+        const apiKey = await this.configManager.getEffectiveApiKey(modelInfo.id);
         if (!apiKey) {
+            const isK3 = modelInfo.id.startsWith('kimi-k3');
             throw new vscode.LanguageModelError(
-                'Kimi API key is not configured. Run "Kimi Copilot: Set API Key".',
+                isK3
+                    ? 'K3 API key is not configured. Run "Kimi Copilot: Set K3 API Key" or "Kimi Copilot: Set API Key".'
+                    : 'Kimi API key is not configured. Run "Kimi Copilot: Set API Key".',
             );
         }
 
-        const endpoint = this.configManager.getEndpoint() || DEFAULT_ENDPOINT;
+        const isK3 = modelInfo.id.startsWith('kimi-k3');
+        const endpoint = isK3
+            ? this.configManager.getK3Endpoint()
+            : this.configManager.getEndpoint() || DEFAULT_ENDPOINT;
         const modelName = this.configManager.getApiModelId(modelInfo.id);
         const modelConfig = this.configManager.getModelConfig(modelInfo.id);
         const modelDefaults = getModelDefaults(modelInfo.id);
@@ -156,7 +169,12 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             frequency_penalty: frequencyPenalty,
         };
 
-        if (thinking) {
+        if (isK3) {
+            // K3: always-on reasoning via reasoning_effort, not thinking
+            request.reasoning_effort = modelDefaults?.reasoning_effort ?? 'max';
+            // K3 fixed top_p: 0.95
+            request.top_p = 0.95;
+        } else if (thinking) {
             request.thinking = thinking;
         }
 
@@ -195,13 +213,16 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
 
             if (!response.ok) {
                 const errText = await response.text().catch(() => 'unknown');
-                throw this.toLanguageModelError(response.status, errText);
+                const retryAfter = response.headers.get('Retry-After');
+                throw this.toLanguageModelError(response.status, errText, endpoint, retryAfter);
             }
 
             if (enableStreaming) {
-                await streamSSEResponse(response, progress, token, this.outputChannel);
+                const usage = await streamSSEResponse(response, progress, token, this.outputChannel);
+                this.recordUsage(usage, modelName);
             } else {
-                await completeResponse(response, progress, this.outputChannel);
+                const usage = await completeResponse(response, progress, this.outputChannel);
+                this.recordUsage(usage, modelName);
             }
 
             this.outputChannel.info(`← completed in ${Date.now() - startTime}ms`);
@@ -226,6 +247,28 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             }
             throw new vscode.LanguageModelError(message, { cause: err });
         }
+    }
+
+    // ── Usage tracking ──────────────────────────────────────────────
+
+    /** Record token usage from a completed request and log the summary. */
+    private recordUsage(
+        usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; prompt_cache_hit_tokens?: number } | undefined,
+        modelId: string,
+    ): void {
+        if (!usage || usage.prompt_tokens === 0) return;
+
+        const record: UsageRecord = {
+            promptTokens: usage.prompt_tokens,
+            completionTokens: usage.completion_tokens,
+            cachedTokens: usage.prompt_cache_hit_tokens ?? 0,
+            totalTokens: usage.total_tokens,
+            model: modelId,
+            timestamp: Date.now(),
+        };
+
+        this.usageTracker?.record(record);
+        this.outputChannel.info(`📊 ${formatUsageSummary(record)}`);
     }
 
     // ── Token counting ─────────────────────────────────────────────
@@ -258,24 +301,60 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         timeoutMs: number,
         token: vscode.CancellationToken,
         attempt = 1,
+        maxRetries = 3,
     ): Promise<Response> {
+        // Check cancellation before each attempt.
+        if (token.isCancellationRequested) {
+            throw new vscode.LanguageModelError('Request was cancelled.');
+        }
+
+        let response: Response;
         try {
-            return await this.fetchWithTimeout(url, init, timeoutMs, token);
+            response = await this.fetchWithTimeout(url, init, timeoutMs, token);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const isRetryable =
-                err instanceof vscode.LanguageModelError &&
-                (message.includes('429') || message.includes('server error'));
+                message.includes('timed out') ||
+                message.includes('fetch failed') ||
+                message.includes('ENOTFOUND') ||
+                message.includes('ECONNREFUSED') ||
+                message.includes('ECONNRESET');
 
-            if (isRetryable && attempt < 3) {
+            if (isRetryable && attempt < maxRetries) {
                 const delay = Math.min(1000 * 2 ** attempt, 8000);
-                this.outputChannel.warn(`Retryable error, waiting ${delay}ms before attempt ${attempt + 1}`);
+                this.outputChannel.warn(
+                    `Network error, retrying in ${delay}ms (attempt ${attempt}/${maxRetries}): ${message}`,
+                );
                 await new Promise((resolve) => setTimeout(resolve, delay));
-                return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1);
+                return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1, maxRetries);
             }
 
             throw err;
         }
+
+        // Retry on HTTP 429 (rate limit) and 5xx (server errors).
+        if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+            // Honor Retry-After header if present.
+            let delay = Math.min(1000 * 2 ** attempt, 8000);
+            const retryAfter = response.headers.get('Retry-After');
+            if (retryAfter) {
+                const seconds = parseInt(retryAfter, 10);
+                if (!isNaN(seconds) && seconds > 0) {
+                    delay = Math.min(seconds * 1000, 30000);
+                }
+            }
+
+            // Drain the body so the connection can be reused.
+            await response.text().catch(() => { /* ignore */ });
+
+            this.outputChannel.warn(
+                `HTTP ${response.status}, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1, maxRetries);
+        }
+
+        return response;
     }
 
     private async fetchWithTimeout(
@@ -305,29 +384,37 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
 
     // ── Error mapping ───────────────────────────────────────────────
 
-    private toLanguageModelError(status: number, body: string): vscode.LanguageModelError {
+    private toLanguageModelError(
+        status: number,
+        body: string,
+        endpoint?: string,
+        retryAfter?: string | null,
+    ): vscode.LanguageModelError {
+        const epSuffix = endpoint ? ` [${endpoint}]` : '';
+        const retryHint = retryAfter ? ` Retry after ${retryAfter}s.` : '';
+
         switch (status) {
             case 401:
                 return new vscode.LanguageModelError(
-                    'Invalid Kimi API key (401). Run "Kimi Copilot: Set API Key" to update.',
+                    `Invalid Kimi API key (401)${epSuffix}. Run "Kimi Copilot: Set API Key" to update.`,
                 );
             case 403:
                 return new vscode.LanguageModelError(
-                    'Access denied by Kimi API (403).',
+                    `Access denied (403)${epSuffix}. Check your API key permissions.`,
                 );
             case 429:
                 return new vscode.LanguageModelError(
-                    'Kimi API rate limit exceeded (429). Retry later.',
+                    `Kimi API rate limit exceeded (429)${epSuffix}.${retryHint} Check https://platform.kimi.ai/console/api-keys`,
                 );
             case 500:
             case 502:
             case 503:
                 return new vscode.LanguageModelError(
-                    'Kimi API server error. Retry later.',
+                    `Kimi API server error (${status})${epSuffix}.${retryHint} Retry later.`,
                 );
             default:
                 return new vscode.LanguageModelError(
-                    `Kimi API error ${status}: ${body.slice(0, 300)}`,
+                    `Kimi API error ${status}${epSuffix}: ${body.slice(0, 300)}`,
                 );
         }
     }
@@ -459,7 +546,7 @@ async function completeResponse(
     response: Response,
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     outputChannel: vscode.LogOutputChannel,
-): Promise<void> {
+): Promise<KimiStreamChunk['usage']> {
     const data = (await response.json()) as {
         choices: Array<{
             message?: {
@@ -469,12 +556,13 @@ async function completeResponse(
             };
             finish_reason: string | null;
         }>;
+        usage?: KimiStreamChunk['usage'];
     };
 
     const message = data.choices[0]?.message;
     if (!message) {
         outputChannel.warn('Empty response from Kimi API');
-        return;
+        return data.usage;
     }
 
     if (message.content) {
@@ -492,6 +580,7 @@ async function completeResponse(
             );
         }
     }
+    return data.usage;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -503,13 +592,14 @@ async function streamSSEResponse(
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
     outputChannel: vscode.LogOutputChannel,
-): Promise<void> {
+): Promise<KimiStreamChunk['usage']> {
     const reader = response.body?.getReader();
     if (!reader) {
         throw new Error('No response body from Kimi API');
     }
 
     const decoder = new TextDecoder('utf-8');
+    let lastUsage: KimiStreamChunk['usage'] | undefined;
     let buffer = '';
     const pendingToolCalls = new Map<
         number,
@@ -571,11 +661,17 @@ async function streamSSEResponse(
                 const payload = trimmed.slice(5).trim();
                 if (payload === '[DONE]') {
                     emitPendingToolCalls();
-                    return;
+                    return lastUsage;
                 }
 
                 try {
                     const parsed = JSON.parse(payload) as KimiStreamChunk;
+
+                    // Capture usage from the final chunk
+                    if (parsed.usage) {
+                        lastUsage = parsed.usage;
+                    }
+
                     const delta = parsed.choices[0]?.delta;
                     if (!delta) {
                         continue;
@@ -623,6 +719,7 @@ async function streamSSEResponse(
             /* already released */
         }
     }
+    return lastUsage;
 }
 
 function safeParseArgs(args: string): Record<string, unknown> {

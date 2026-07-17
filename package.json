@@ -1,19 +1,19 @@
 {
   "name": "kimi-copilot-provider",
-  "displayName": "Kimi Copilot Provider",
-  "description": "Use Kimi K2/K2.7 Code models as a custom language model provider for GitHub Copilot Chat",
-  "version": "1.4.2",
-  "publisher": "kimi-ext",
+  "displayName": "Kimi Copilot Provider (K3 Fork)",
+  "description": "Fork of DimQ1/kimi-copilot-provider adding K3 support. Use Kimi K2, K2.7, and K3 models in GitHub Copilot Chat.",
+  "version": "1.4.3",
+  "publisher": "Webboy998",
   "license": "MIT",
   "icon": "icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DimQ1/kimi-copilot-provider.git"
+    "url": "https://github.com/siml1169/kimi-copilot-provider_k3.git"
   },
   "bugs": {
-    "url": "https://github.com/DimQ1/kimi-copilot-provider/issues"
+    "url": "https://github.com/siml1169/kimi-copilot-provider_k3/issues"
   },
-  "homepage": "https://github.com/DimQ1/kimi-copilot-provider#readme",
+  "homepage": "https://github.com/siml1169/kimi-copilot-provider_k3#readme",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -29,7 +29,7 @@
     "languageModelChatProviders": [
       {
         "vendor": "kimi-copilot",
-        "displayName": "Kimi Copilot Provider",
+        "displayName": "Kimi Copilot Provider (K3 Fork)",
         "managementCommand": "kimi-copilot.openSettings"
       }
     ],
@@ -37,6 +37,11 @@
       {
         "command": "kimi-copilot.setApiKey",
         "title": "Set API Key",
+        "category": "Kimi Copilot"
+      },
+      {
+        "command": "kimi-copilot.setK3ApiKey",
+        "title": "Set K3 API Key",
         "category": "Kimi Copilot"
       },
       {
@@ -58,25 +63,35 @@
         "command": "kimi-copilot.openSettings",
         "title": "Open Settings",
         "category": "Kimi Copilot"
+      },
+      {
+        "command": "kimi-copilot.showUsageStats",
+        "title": "Show Usage Stats",
+        "category": "Kimi Copilot"
+      },
+      {
+        "command": "kimi-copilot.resetUsageStats",
+        "title": "Reset Usage Stats",
+        "category": "Kimi Copilot"
       }
     ],
     "configuration": {
       "title": "Kimi Copilot",
       "properties": {
-        "kimiCopilot.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "DEPRECATED: API key is now stored securely via the 'Kimi Copilot: Set API Key' command."
-        },
         "kimiCopilot.baseUrl": {
           "type": "string",
-          "default": "https://api.kimi.com",
-          "description": "Base URL for the Kimi API. Change for self-hosted or proxied deployments."
+          "default": "https://api.moonshot.ai",
+          "description": "Base URL for the Kimi API (Moonshot). Change for self-hosted or proxied deployments."
         },
         "kimiCopilot.endpoint": {
           "type": "string",
-          "default": "https://api.kimi.com/coding/v1/chat/completions",
+          "default": "https://api.moonshot.ai/v1/chat/completions",
           "description": "Full Kimi API endpoint URL. Overrides baseUrl when set to a non-default value."
+        },
+        "kimiCopilot.k3Endpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Override endpoint for K3 models only. Leave empty to use the main endpoint."
         },
         "kimiCopilot.modelIdOverrides": {
           "type": "object",
@@ -183,21 +198,21 @@
           "default": 0.95,
           "minimum": 0,
           "maximum": 1,
-          "description": "Top-p (nucleus) sampling. Kimi K2.7 Code API only supports 0.95; this value is always used."
+          "description": "Top-p (nucleus) sampling. Model-dependent; K2.7 defaults to 0.95."
         },
         "kimiCopilot.presencePenalty": {
           "type": "number",
           "default": 0,
           "minimum": -2,
           "maximum": 2,
-          "description": "Presence penalty for new tokens. Kimi K2.7 Code requires 0.0."
+          "description": "Presence penalty for new tokens (model-dependent)."
         },
         "kimiCopilot.frequencyPenalty": {
           "type": "number",
           "default": 0,
           "minimum": -2,
           "maximum": 2,
-          "description": "Frequency penalty for repeated tokens. Kimi K2.7 Code requires 0.0."
+          "description": "Frequency penalty for repeated tokens (model-dependent)."
         },
         "kimiCopilot.timeout": {
           "type": "number",
@@ -234,6 +249,7 @@
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.0.0",
     "prettier": "^3.3.0",
+    "sharp": "^0.35.3",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.0.0"
   }

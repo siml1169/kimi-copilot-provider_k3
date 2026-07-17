@@ -8,9 +8,10 @@ import type { ModelConfigOverride } from './types';
 
 const CONFIG_SECTION = 'kimiCopilot';
 const API_KEY_SECRET_KEY = 'kimiCopilot.apiKey';
+const K3_API_KEY_SECRET_KEY = 'kimiCopilot.k3ApiKey';
 
-const DEFAULT_BASE_URL = 'https://api.kimi.com';
-const DEFAULT_ENDPOINT = 'https://api.kimi.com/coding/v1/chat/completions';
+const DEFAULT_BASE_URL = 'https://api.moonshot.ai';
+const DEFAULT_ENDPOINT = 'https://api.moonshot.ai/v1/chat/completions';
 
 export class ConfigurationManager {
 	constructor(private readonly secretStorage: vscode.SecretStorage) {}
@@ -19,30 +20,49 @@ export class ConfigurationManager {
 		return vscode.workspace.getConfiguration(CONFIG_SECTION);
 	}
 
-	/** Returns the API key from SecretStorage, with plain-text fallback. */
+	/** Returns the main API key from SecretStorage. */
 	async getApiKey(): Promise<string | undefined> {
-		const fromSecret = await this.secretStorage.get(API_KEY_SECRET_KEY);
-		if (fromSecret) {
-			return fromSecret;
-		}
-
-		// Fallback for migration from plain-text settings.
-		const fromConfig = this.config.get<string>('apiKey', '');
-		if (fromConfig.trim().length > 0) {
-			return fromConfig;
-		}
-
-		return undefined;
+		return this.secretStorage.get(API_KEY_SECRET_KEY);
 	}
 
-	/** Stores the API key securely in VS Code SecretStorage. */
+	/** Stores the main API key securely in VS Code SecretStorage. */
 	async setApiKey(value: string): Promise<void> {
 		await this.secretStorage.store(API_KEY_SECRET_KEY, value);
 	}
 
-	/** Removes the stored API key. */
+	/** Removes the stored main API key. */
 	async deleteApiKey(): Promise<void> {
 		await this.secretStorage.delete(API_KEY_SECRET_KEY);
+	}
+
+	/** Returns the K3-specific API key from SecretStorage. */
+	async getK3ApiKey(): Promise<string | undefined> {
+		return this.secretStorage.get(K3_API_KEY_SECRET_KEY);
+	}
+
+	/** Stores the K3-specific API key. */
+	async setK3ApiKey(value: string): Promise<void> {
+		await this.secretStorage.store(K3_API_KEY_SECRET_KEY, value);
+	}
+
+	/** Removes the stored K3 API key. */
+	async deleteK3ApiKey(): Promise<void> {
+		await this.secretStorage.delete(K3_API_KEY_SECRET_KEY);
+	}
+
+	/**
+	 * Returns the effective API key for a given model.
+	 * For K3 models: K3-specific key takes priority, falls back to main key.
+	 * For all others: main key.
+	 */
+	async getEffectiveApiKey(modelId?: string): Promise<string | undefined> {
+		if (modelId?.startsWith('kimi-k3')) {
+			const k3Key = await this.getK3ApiKey();
+			if (k3Key) {
+				return k3Key;
+			}
+		}
+		return this.getApiKey();
 	}
 
 	getBaseUrl(): string {
@@ -58,6 +78,20 @@ export class ConfigurationManager {
 		} catch {
 			return DEFAULT_ENDPOINT;
 		}
+	}
+
+	/** Returns the K3-specific endpoint override, or falls back to getEndpoint(). */
+	getK3Endpoint(): string {
+		const k3Endpoint = this.config.get<string>('k3Endpoint', '');
+		if (k3Endpoint.trim().length > 0) {
+			try {
+				new URL(k3Endpoint);
+				return k3Endpoint;
+			} catch {
+				// Invalid URL → fall through to default
+			}
+		}
+		return this.getEndpoint();
 	}
 
 	/** Per-model overrides. */
