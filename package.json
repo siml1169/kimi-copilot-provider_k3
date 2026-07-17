@@ -1,7 +1,7 @@
 {
-  "name": "kimi-copilot-provider",
-  "displayName": "Kimi Copilot Provider (K3 Fork)",
-  "description": "Fork of DimQ1/kimi-copilot-provider adding K3 support. Use Kimi K2, K2.7, and K3 models in GitHub Copilot Chat.",
+  "name": "kimi3-copilot-provider",
+  "displayName": "Kimi3 Copilot Provider",
+  "description": "Use Kimi K2, K2.7, and K3 models as a custom language model provider for GitHub Copilot Chat (fork with K3 support)",
   "version": "1.4.3",
   "publisher": "Webboy998",
   "license": "MIT",
@@ -22,88 +22,88 @@
     "Chat"
   ],
   "activationEvents": [
-    "onLanguageModelChatProvider:kimi-copilot"
+    "onLanguageModelChatProvider:kimi3-copilot"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "languageModelChatProviders": [
       {
-        "vendor": "kimi-copilot",
-        "displayName": "Kimi Copilot Provider (K3 Fork)",
-        "managementCommand": "kimi-copilot.openSettings"
+        "vendor": "kimi3-copilot",
+        "displayName": "Kimi3 Copilot Provider",
+        "managementCommand": "kimi3-copilot.openSettings"
       }
     ],
     "commands": [
       {
-        "command": "kimi-copilot.setApiKey",
+        "command": "kimi3-copilot.setApiKey",
         "title": "Set API Key",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       },
       {
-        "command": "kimi-copilot.setK3ApiKey",
+        "command": "kimi3-copilot.setK3ApiKey",
         "title": "Set K3 API Key",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       },
       {
-        "command": "kimi-copilot.selectModel",
+        "command": "kimi3-copilot.selectModel",
         "title": "Select Default Model",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       },
       {
-        "command": "kimi-copilot.editModelConfig",
+        "command": "kimi3-copilot.editModelConfig",
         "title": "Edit Model Configuration",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       },
       {
-        "command": "kimi-copilot.testConnection",
+        "command": "kimi3-copilot.testConnection",
         "title": "Test Connection",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       },
       {
-        "command": "kimi-copilot.openSettings",
+        "command": "kimi3-copilot.openSettings",
         "title": "Open Settings",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       },
       {
-        "command": "kimi-copilot.showUsageStats",
+        "command": "kimi3-copilot.showUsageStats",
         "title": "Show Usage Stats",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       },
       {
-        "command": "kimi-copilot.resetUsageStats",
+        "command": "kimi3-copilot.resetUsageStats",
         "title": "Reset Usage Stats",
-        "category": "Kimi Copilot"
+        "category": "Kimi3 Copilot"
       }
     ],
     "configuration": {
-      "title": "Kimi Copilot",
+      "title": "Kimi3 Copilot",
       "properties": {
-        "kimiCopilot.baseUrl": {
+        "kimi3Copilot.baseUrl": {
           "type": "string",
           "default": "https://api.moonshot.ai",
           "description": "Base URL for the Kimi API (Moonshot). Change for self-hosted or proxied deployments."
         },
-        "kimiCopilot.endpoint": {
+        "kimi3Copilot.endpoint": {
           "type": "string",
           "default": "https://api.moonshot.ai/v1/chat/completions",
           "description": "Full Kimi API endpoint URL. Overrides baseUrl when set to a non-default value."
         },
-        "kimiCopilot.k3Endpoint": {
+        "kimi3Copilot.k3Endpoint": {
           "type": "string",
           "default": "",
           "description": "Override endpoint for K3 models only. Leave empty to use the main endpoint."
         },
-        "kimiCopilot.modelIdOverrides": {
+        "kimi3Copilot.modelIdOverrides": {
           "type": "object",
           "default": {},
           "description": "Override API model IDs sent for each picker model. Example: { \"kimi-for-coding\": \"your-custom-model-id\" }"
         },
-        "kimiCopilot.model": {
+        "kimi3Copilot.model": {
           "type": "string",
           "default": "kimi-k2.7-code",
           "description": "Default Kimi model ID used in chat. Use 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6', 'kimi-k2.5', or 'kimi-k3'."
         },
-        "kimiCopilot.modelConfigs": {
+        "kimi3Copilot.modelConfigs": {
           "type": [
             "object",
             "null"
@@ -179,53 +179,53 @@
             "additionalProperties": false
           }
         },
-        "kimiCopilot.temperature": {
+        "kimi3Copilot.temperature": {
           "type": "number",
           "default": 1,
           "minimum": 0,
           "maximum": 2,
           "description": "Sampling temperature for generation (0–2). Per-model value in modelConfigs takes precedence."
         },
-        "kimiCopilot.maxTokens": {
+        "kimi3Copilot.maxTokens": {
           "type": "number",
           "default": 0,
           "minimum": 0,
           "maximum": 32768,
           "description": "Maximum output tokens. Set to 0 for model default. Per-model value in modelConfigs takes precedence."
         },
-        "kimiCopilot.topP": {
+        "kimi3Copilot.topP": {
           "type": "number",
           "default": 0.95,
           "minimum": 0,
           "maximum": 1,
           "description": "Top-p (nucleus) sampling. Model-dependent; K2.7 defaults to 0.95."
         },
-        "kimiCopilot.presencePenalty": {
+        "kimi3Copilot.presencePenalty": {
           "type": "number",
           "default": 0,
           "minimum": -2,
           "maximum": 2,
           "description": "Presence penalty for new tokens (model-dependent)."
         },
-        "kimiCopilot.frequencyPenalty": {
+        "kimi3Copilot.frequencyPenalty": {
           "type": "number",
           "default": 0,
           "minimum": -2,
           "maximum": 2,
           "description": "Frequency penalty for repeated tokens (model-dependent)."
         },
-        "kimiCopilot.timeout": {
+        "kimi3Copilot.timeout": {
           "type": "number",
           "default": 60000,
           "minimum": 1000,
           "description": "Request timeout in milliseconds."
         },
-        "kimiCopilot.enableStreaming": {
+        "kimi3Copilot.enableStreaming": {
           "type": "boolean",
           "default": true,
           "description": "Enable SSE streaming responses."
         },
-        "kimiCopilot.systemPrompt": {
+        "kimi3Copilot.systemPrompt": {
           "type": "string",
           "default": "You are Kimi, an AI assistant provided by Moonshot AI. You are proficient in Chinese and English conversations. You provide users with safe, helpful, and accurate answers. You will reject any questions involving terrorism, racism, or explicit content. Moonshot AI is a proper noun and should not be translated.",
           "description": "System prompt sent with every request. Can be overridden per model in modelConfigs."

@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Kimi K3 model support** with `reasoning_effort: "max"` (replaces `thinking` for K3).
-- **Separate K3 API key** — `Kimi Copilot: Set K3 API Key` command and `SecretStorage` entry; falls back to main key when absent.
-- **Separate K3 endpoint** — `kimiCopilot.k3Endpoint` setting for independent K3 endpoint override.
+- **Separate K3 API key** — `Kimi3 Copilot: Set K3 API Key` command and `SecretStorage` entry; falls back to main key when absent.
+- **Separate K3 endpoint** — `kimi3Copilot.k3Endpoint` setting for independent K3 endpoint override.
 - **Usage & cost tracking** — new `src/usage.ts` module captures `usage.prompt_tokens`, `usage.completion_tokens`, `usage.cached_tokens` from every API response.
 - **Status bar balance display** — fetches `GET /v1/users/me/balance` after each request and shows live account balance; falls back to estimated cost before first fetch.
 - **Daily usage aggregation** — persists today's tokens, cost, cache hit rate in `workspaceState`; resets at midnight.
-- **`Kimi Copilot: Show Usage Stats`** command — opens today's stats as a Markdown report.
-- **`Kimi Copilot: Reset Usage Stats`** command.
+- **`Kimi3 Copilot: Show Usage Stats`** command — opens today's stats as a Markdown report.
+- **`Kimi3 Copilot: Reset Usage Stats`** command.
 - **`stream_options: {include_usage: true}`** added to all streaming requests so usage is captured from real chat traffic (not just test connection).
 - **K3 dynamic tool message type** (`KimiK3DynamicToolMessage`) added to `types.ts`.
 - **`stop`, `prompt_cache_key`, `safety_identifier`, `stream_options`** fields added to `KimiRequest`.
@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test Connection command now shows a progress notification with model, endpoint, and key source; failure offers **Show Details** and **Open Settings** buttons.
 
 ### Changed
+- **Extension renamed** to `kimi3-copilot-provider` / **Kimi3 Copilot Provider** for marketplace publication.
+- **All command IDs** renamed from `kimi-copilot.*` to `kimi3-copilot.*`.
+- **All settings** renamed from `kimiCopilot.*` to `kimi3Copilot.*`.
+- **All SecretStorage keys** renamed from `kimiCopilot.*` to `kimi3Copilot.*`.
+- **Provider vendor** renamed from `kimi-copilot` to `kimi3-copilot`.
 - **All endpoints migrated** from `api.kimi.com` to `api.moonshot.ai` (official Moonshot platform).
 - **`max_tokens` → `max_completion_tokens`** — updated to use the non-deprecated field name.
 - **K2.7 `thinking` default** corrected to `{type: "enabled", keep: "all"}` (Preserved Thinking always on).
@@ -32,9 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tool_choice` type widened to include object form `{type: "function", function: {name: "…"}}` (K3-only: `required` also supported).
 - `kimiCopilot.apiKey` deprecated plain-text fallback removed; SecretStorage is now the only key store.
 - HTTP-level 429/5xx retry now handled at fetch level (not just on thrown exceptions); respects `Retry-After` header.
-- `displayName` updated to **Kimi Copilot Provider (K3 Fork)**; description and repo URLs point to fork.
 - Icon updated to indigo/violet gradient with K3 badge.
-- README fully rewritten to reflect new features, commands, settings, pricing, and API compliance notes.
+- README fully rewritten to reflect new name, features, commands, settings, pricing, and API compliance notes.
 
 ### Fixed
 - **`cached_tokens` field name** corrected from `prompt_cache_hit_tokens` to `cached_tokens` (actual API response field).

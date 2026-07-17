@@ -6,9 +6,9 @@ import type { ModelConfigOverride } from './types';
 // Includes secure API key storage via SecretStorage.
 // ═══════════════════════════════════════════════════════════════════════
 
-const CONFIG_SECTION = 'kimiCopilot';
-const API_KEY_SECRET_KEY = 'kimiCopilot.apiKey';
-const K3_API_KEY_SECRET_KEY = 'kimiCopilot.k3ApiKey';
+const CONFIG_SECTION = 'kimi3Copilot';
+const API_KEY_SECRET_KEY = 'kimi3Copilot.apiKey';
+const K3_API_KEY_SECRET_KEY = 'kimi3Copilot.k3ApiKey';
 
 const DEFAULT_BASE_URL = 'https://api.moonshot.ai';
 const DEFAULT_ENDPOINT = 'https://api.moonshot.ai/v1/chat/completions';

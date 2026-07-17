@@ -13,7 +13,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(usageTracker);
 
     context.subscriptions.push(
-        vscode.lm.registerLanguageModelChatProvider('kimi-copilot', provider),
+        vscode.lm.registerLanguageModelChatProvider('kimi3-copilot', provider),
         provider,
     );
 
@@ -37,7 +37,7 @@ function registerCommands(
     usageTracker: UsageTracker,
 ): void {
     context.subscriptions.push(
-        vscode.commands.registerCommand('kimi-copilot.setApiKey', async () => {
+        vscode.commands.registerCommand('kimi3-copilot.setApiKey', async () => {
             const current = await configManager.getApiKey();
             const value = await vscode.window.showInputBox({
                 prompt: 'Enter your Kimi API key (sk-kimi-...)',
@@ -59,7 +59,7 @@ function registerCommands(
             }
         }),
 
-        vscode.commands.registerCommand('kimi-copilot.setK3ApiKey', async () => {
+        vscode.commands.registerCommand('kimi3-copilot.setK3ApiKey', async () => {
             const current = await configManager.getK3ApiKey();
             const value = await vscode.window.showInputBox({
                 prompt: 'Enter your K3 API key (separate Moonshot key for kimi-k3)',
@@ -81,7 +81,7 @@ function registerCommands(
             }
         }),
 
-        vscode.commands.registerCommand('kimi-copilot.selectModel', async () => {
+        vscode.commands.registerCommand('kimi3-copilot.selectModel', async () => {
             const { MODELS } = await import('./models.js');
             const current = configManager.getModel();
 
@@ -104,7 +104,7 @@ function registerCommands(
             }
         }),
 
-        vscode.commands.registerCommand('kimi-copilot.editModelConfig', async () => {
+        vscode.commands.registerCommand('kimi3-copilot.editModelConfig', async () => {
             const { MODELS } = await import('./models.js');
 
             const selected = await vscode.window.showQuickPick(
@@ -155,10 +155,10 @@ function registerCommands(
             );
         }),
 
-        vscode.commands.registerCommand('kimi-copilot.testConnection', async () => {
+        vscode.commands.registerCommand('kimi3-copilot.testConnection', async () => {
             const apiKey = await configManager.getApiKey();
             if (!apiKey) {
-                vscode.window.showErrorMessage('Kimi API key is not set. Run "Kimi Copilot: Set API Key".');
+                vscode.window.showErrorMessage('Kimi API key is not set. Run "Kimi3 Copilot: Set API Key".');
                 return;
             }
 
@@ -193,7 +193,7 @@ function registerCommands(
                             )
                             .then((choice) => {
                                 if (choice === 'Show Details') {
-                                    const output = vscode.window.createOutputChannel('Kimi Copilot');
+                                    const output = vscode.window.createOutputChannel('Kimi3 Copilot');
                                     output.appendLine(`Test connection failed at ${new Date().toISOString()}`);
                                     output.appendLine(`Endpoint: ${endpoint}`);
                                     output.appendLine(`Model: ${modelId}`);
@@ -202,7 +202,7 @@ function registerCommands(
                                 } else if (choice === 'Open Settings') {
                                     vscode.commands.executeCommand(
                                         'workbench.action.openSettings',
-                                        'kimiCopilot',
+                                        'kimi3Copilot',
                                     );
                                 }
                             });
@@ -211,11 +211,11 @@ function registerCommands(
             );
         }),
 
-        vscode.commands.registerCommand('kimi-copilot.openSettings', () => {
-            vscode.commands.executeCommand('workbench.action.openSettings', 'kimiCopilot');
+        vscode.commands.registerCommand('kimi3-copilot.openSettings', () => {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'kimi3Copilot');
         }),
 
-        vscode.commands.registerCommand('kimi-copilot.showUsageStats', async () => {
+        vscode.commands.registerCommand('kimi3-copilot.showUsageStats', async () => {
             const stats = usageTracker.getStats();
             const content = [
                 `# Kimi Usage Today`,
@@ -241,7 +241,7 @@ function registerCommands(
             await vscode.window.showTextDocument(doc, { preview: true });
         }),
 
-        vscode.commands.registerCommand('kimi-copilot.resetUsageStats', async () => {
+        vscode.commands.registerCommand('kimi3-copilot.resetUsageStats', async () => {
             const confirm = await vscode.window.showWarningMessage(
                 'Reset today\'s usage statistics?',
                 { modal: true },

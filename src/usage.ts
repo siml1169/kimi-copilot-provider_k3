@@ -136,7 +136,7 @@ export function formatUsageSummary(record: UsageRecord): string {
 
 // ── State Persistence ────────────────────────────────────────────────
 
-const USAGE_STATE_KEY = 'kimiCopilot.dailyUsage';
+const USAGE_STATE_KEY = 'kimi3Copilot.dailyUsage';
 
 export class UsageTracker {
 	private daily: DailyUsage;
@@ -174,7 +174,7 @@ export class UsageTracker {
 			vscode.StatusBarAlignment.Right,
 			100,
 		);
-		this.statusBarItem.command = 'kimi-copilot.showUsageStats';
+		this.statusBarItem.command = 'kimi3-copilot.showUsageStats';
 		this.updateStatusBar();
 		this.statusBarItem.show();
 	}

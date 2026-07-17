@@ -24,7 +24,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     private usageTracker: UsageTracker | undefined;
 
     constructor(private readonly configManager: ConfigurationManager) {
-        this.outputChannel = vscode.window.createOutputChannel('Kimi Copilot', { log: true });
+        this.outputChannel = vscode.window.createOutputChannel('Kimi3 Copilot', { log: true });
 
         // Watch for API key / config changes and refresh the model picker.
         this.disposables.push(

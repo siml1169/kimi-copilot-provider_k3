@@ -1,4 +1,4 @@
-# Kimi Copilot Provider (K3 Fork)
+# Kimi3 Copilot Provider
 
 > **Fork** of [DimQ1/kimi-copilot-provider](https://github.com/DimQ1/kimi-copilot-provider) adding **Kimi K3** support, Moonshot API endpoints, usage/cost tracking, and balance display.
 
@@ -41,19 +41,19 @@ npm run compile
 ### 2. Install the pre-built .vsix
 
 ```
-Ctrl+Shift+P → Extensions: Install from VSIX... → kimi-copilot-provider-*.vsix
+Ctrl+Shift+P → Extensions: Install from VSIX... → kimi3-copilot-provider-*.vsix
 ```
 
 ### 3. Set your API key
 
 ```
-Ctrl+Shift+P → Kimi Copilot: Set API Key
+Ctrl+Shift+P → Kimi3 Copilot: Set API Key
 ```
 
 For **Kimi K3**, get a key from [platform.kimi.ai/console/api-keys](https://platform.kimi.ai/console/api-keys). If your account doesn't have K3 access yet, set a separate K3 key:
 
 ```
-Ctrl+Shift+P → Kimi Copilot: Set K3 API Key
+Ctrl+Shift+P → Kimi3 Copilot: Set K3 API Key
 ```
 
 When a K3 key is set it takes priority for K3 requests and falls back to the main key when absent.
@@ -62,24 +62,24 @@ When a K3 key is set it takes priority for K3 requests and falls back to the mai
 
 1. Open Chat in VS Code
 2. Click the model picker → **Manage Models**
-3. Find **Kimi Copilot Provider (K3 Fork)** → ✅ check the desired model
+3. Find **Kimi3 Copilot Provider** → ✅ check the desired model
 
 ## Settings
 
 | Setting | Default | Description |
 |---|---|---|
-| `kimiCopilot.model` | `kimi-k2.7-code` | Default model used in chat |
-| `kimiCopilot.endpoint` | `https://api.moonshot.ai/v1/chat/completions` | Chat completions endpoint |
-| `kimiCopilot.k3Endpoint` | _(empty)_ | Override endpoint for K3 only; leave empty to use main endpoint |
-| `kimiCopilot.baseUrl` | `https://api.moonshot.ai` | Base URL (used for balance fetch) |
-| `kimiCopilot.temperature` | `1.0` | Sampling temperature (model-dependent; fixed at 1.0 for K2.7/K3) |
-| `kimiCopilot.maxTokens` | `0` | Max completion tokens (`0` = model default) |
-| `kimiCopilot.topP` | `0.95` | Top-p sampling (fixed at 0.95 for K2.7/K3) |
-| `kimiCopilot.systemPrompt` | (see `config.ts`) | System prompt prepended to every request |
-| `kimiCopilot.timeout` | `60000` | Request timeout in ms |
-| `kimiCopilot.enableStreaming` | `true` | Enable SSE streaming |
-| `kimiCopilot.modelConfigs` | `{}` | Per-model JSON overrides (temperature, topP, maxOutputTokens, systemPrompt, toolCalling, etc.) |
-| `kimiCopilot.modelIdOverrides` | `{}` | Remap picker model IDs to custom API model IDs |
+| `kimi3Copilot.model` | `kimi-k2.7-code` | Default model used in chat |
+| `kimi3Copilot.endpoint` | `https://api.moonshot.ai/v1/chat/completions` | Chat completions endpoint |
+| `kimi3Copilot.k3Endpoint` | _(empty)_ | Override endpoint for K3 only; leave empty to use main endpoint |
+| `kimi3Copilot.baseUrl` | `https://api.moonshot.ai` | Base URL (used for balance fetch) |
+| `kimi3Copilot.temperature` | `1.0` | Sampling temperature (model-dependent; fixed at 1.0 for K2.7/K3) |
+| `kimi3Copilot.maxTokens` | `0` | Max completion tokens (`0` = model default) |
+| `kimi3Copilot.topP` | `0.95` | Top-p sampling (fixed at 0.95 for K2.7/K3) |
+| `kimi3Copilot.systemPrompt` | (see `config.ts`) | System prompt prepended to every request |
+| `kimi3Copilot.timeout` | `60000` | Request timeout in ms |
+| `kimi3Copilot.enableStreaming` | `true` | Enable SSE streaming |
+| `kimi3Copilot.modelConfigs` | `{}` | Per-model JSON overrides (temperature, topP, maxOutputTokens, systemPrompt, toolCalling, etc.) |
+| `kimi3Copilot.modelIdOverrides` | `{}` | Remap picker model IDs to custom API model IDs |
 
 ## Cost & Usage Tracking
 
@@ -106,14 +106,14 @@ Stats reset at midnight and persist across VS Code restarts via `workspaceState`
 
 | Command | Description |
 |---|---|
-| **Kimi Copilot: Set API Key** | Store main API key in SecretStorage |
-| **Kimi Copilot: Set K3 API Key** | Store separate K3 API key (optional) |
-| **Kimi Copilot: Select Default Model** | Pick the default model |
-| **Kimi Copilot: Edit Model Configuration** | Per-model JSON overrides |
-| **Kimi Copilot: Test Connection** | Verify endpoint + key with a live request; shows model, endpoint, and key source |
-| **Kimi Copilot: Show Usage Stats** | Open today's usage report as a Markdown document |
-| **Kimi Copilot: Reset Usage Stats** | Reset today's counters |
-| **Kimi Copilot: Open Settings** | Open `kimiCopilot` settings |
+| **Kimi3 Copilot: Set API Key** | Store main API key in SecretStorage |
+| **Kimi3 Copilot: Set K3 API Key** | Store separate K3 API key (optional) |
+| **Kimi3 Copilot: Select Default Model** | Pick the default model |
+| **Kimi3 Copilot: Edit Model Configuration** | Per-model JSON overrides |
+| **Kimi3 Copilot: Test Connection** | Verify endpoint + key with a live request; shows model, endpoint, and key source |
+| **Kimi3 Copilot: Show Usage Stats** | Open today's usage report as a Markdown document |
+| **Kimi3 Copilot: Reset Usage Stats** | Reset today's counters |
+| **Kimi3 Copilot: Open Settings** | Open `kimi3Copilot` settings |
 
 ## Architecture
 
