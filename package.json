@@ -2,7 +2,7 @@
   "name": "kimi3-copilot-provider",
   "displayName": "Kimi3 Copilot Provider",
   "description": "Use Kimi K2, K2.7, and K3 models as a custom language model provider for GitHub Copilot Chat (fork with K3 support)",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "publisher": "Webboy998",
   "license": "MIT",
   "icon": "icon.png",

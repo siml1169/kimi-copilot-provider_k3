@@ -133,6 +133,12 @@ Provider implements the 3 mandatory methods of `LanguageModelChatProvider`:
 2. **`provideLanguageModelChatResponse`** — streams response via `Progress<LanguageModelResponsePart>`
 3. **`provideTokenCount`** — estimates token count
 
+## Reasoning / Chain-of-Thought
+
+For all thinking-capable models (K2.7-code, K2.6, K2.5, K3), the model's **chain-of-thought** (`reasoning_content`) streams inline before the final answer in Copilot Chat. This is always enabled — no configuration needed.
+
+> **K3 note:** When switching to K3 mid-session, the extension shows a warning that quality may be unstable without full thinking history. Starting a fresh chat is recommended.
+
 ## API Compliance Notes
 
 | Feature | Behaviour |
@@ -140,11 +146,16 @@ Provider implements the 3 mandatory methods of `LanguageModelChatProvider`:
 | K2.7 `thinking` | Always `{type: "enabled", keep: "all"}` — cannot be disabled |
 | K2.6 `thinking` | `{type: "enabled"}` by default; can be disabled |
 | K3 reasoning | `reasoning_effort: "max"` (replaces `thinking`) |
+| `reasoning_content` | Streamed inline before the final answer for all thinking models |
 | `temperature` / `top_p` | Fixed by API for all K2.x/K3 models; not sent explicitly |
 | `presence_penalty` / `frequency_penalty` | Fixed at 0 for K2.x/K3; not sent explicitly |
 | `max_completion_tokens` | Used (not deprecated `max_tokens`) |
 | `stream_options` | `{include_usage: true}` always set when streaming |
 | `tool_choice` | `auto`/`none`/`required` or `{type:"function",function:{name:"…"}}` — `required` is K3-only |
+
+## K3 System Prompt
+
+K3 uses a dedicated default system prompt designed to channel its architectural reasoning productively. It requires K3 to explain its reasoning before making structural changes, present trade-offs, and surface unexpected issues. Override via `kimi3Copilot.systemPrompt` or per-model `kimi3Copilot.modelConfigs`.
 
 ## Development
 

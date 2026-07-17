@@ -22,6 +22,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     private readonly outputChannel: vscode.LogOutputChannel;
     private readonly disposables: vscode.Disposable[] = [];
     private usageTracker: UsageTracker | undefined;
+    private lastModelId: string | undefined;
 
     constructor(private readonly configManager: ConfigurationManager) {
         this.outputChannel = vscode.window.createOutputChannel('Kimi3 Copilot', { log: true });
@@ -33,6 +34,27 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
                 this._onDidChange.fire();
             }),
         );
+    }
+
+    /** Track the current model for K3 switch detection. */
+    private trackModelSwitch(modelId: string): void {
+        const wasK3 = this.lastModelId?.startsWith('kimi-k3');
+        const isK3 = modelId.startsWith('kimi-k3');
+
+        if (isK3 && this.lastModelId !== undefined && !wasK3) {
+            this.outputChannel.warn(
+                '⚠️ Switched to K3 mid-session. K3 requires full thinking history; ' +
+                'quality may be unstable without prior reasoning_content. ' +
+                'Consider starting a fresh chat for best results.',
+            );
+            vscode.window.showWarningMessage(
+                '⚠️ Switched to K3 mid-session. K3 requires full thinking history — ' +
+                'quality may be unstable. Consider starting a fresh chat.',
+                'Dismiss',
+            );
+        }
+
+        this.lastModelId = modelId;
     }
 
     /** Attach the usage tracker (called from extension.ts). */
@@ -66,6 +88,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         progress: vscode.Progress<vscode.LanguageModelResponsePart>,
         token: vscode.CancellationToken,
     ): Promise<void> {
+        this.trackModelSwitch(modelInfo.id);
         await this.doChatRequest(modelInfo, messages, options, progress, token);
     }
 
@@ -595,6 +618,7 @@ async function completeResponse(
             message?: {
                 role?: string;
                 content?: string | null;
+                reasoning_content?: string | null;
                 tool_calls?: KimiToolCall[];
             };
             finish_reason: string | null;
@@ -606,6 +630,11 @@ async function completeResponse(
     if (!message) {
         outputChannel.warn('Empty response from Kimi API');
         return data.usage;
+    }
+
+    // Show chain-of-thought (reasoning_content) before the final answer
+    if (message.reasoning_content) {
+        progress.report(new vscode.LanguageModelTextPart(message.reasoning_content));
     }
 
     if (message.content) {
@@ -723,6 +752,11 @@ async function streamSSEResponse(
                     // Text content
                     if (delta.content) {
                         progress.report(new vscode.LanguageModelTextPart(delta.content));
+                    }
+
+                    // Chain-of-thought (reasoning_content) — stream it as text
+                    if (delta.reasoning_content) {
+                        progress.report(new vscode.LanguageModelTextPart(delta.reasoning_content));
                     }
 
                     // Tool calls (accumulate across chunks)

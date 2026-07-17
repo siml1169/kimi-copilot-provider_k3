@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ModelConfigOverride } from './types';
+import { K3_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT } from './models';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Configuration helpers — read extension settings at runtime.
@@ -191,11 +192,12 @@ export class ConfigurationManager {
 			if (modelConfig.systemPrompt !== undefined && modelConfig.systemPrompt.trim().length > 0) {
 				return modelConfig.systemPrompt;
 			}
+			// K3 gets a constraining prompt by default to counteract excessive proactiveness.
+			if (modelId.startsWith('kimi-k3')) {
+				return this.config.get<string>('systemPrompt', K3_SYSTEM_PROMPT);
+			}
 		}
-		return this.config.get<string>(
-			'systemPrompt',
-			'You are Kimi, an AI assistant provided by Moonshot AI. You are proficient in Chinese and English conversations. You provide users with safe, helpful, and accurate answers. You will reject any questions involving terrorism, racism, or explicit content. Moonshot AI is a proper noun and should not be translated.'
-		);
+		return this.config.get<string>('systemPrompt', DEFAULT_SYSTEM_PROMPT);
 	}
 
 	/** Subscribe to configuration changes in our section. */

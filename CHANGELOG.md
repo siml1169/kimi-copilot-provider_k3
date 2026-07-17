@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-07-17 (K3 Fork)
+
+### Added
+- **Chain-of-thought display** — `reasoning_content` from K2.7, K2.6, K2.5, and K3 now streams inline before the final answer in Copilot Chat (both streaming and non-streaming).
+- **K3-specific system prompt** — default constraining prompt that channels K3's architectural reasoning with transparency (explain before structural changes, present trade-offs, surface unexpected issues). Overridable via `kimi3Copilot.systemPrompt` or `modelConfigs`.
+- **Mid-session K3 switch warning** — tracks the last-used model and warns when switching to K3 mid-session, since K3 requires full thinking history for stable multi-turn conversations.
+
+### Changed
+- K3 system prompt replaced restrictive "don't do anything unprompted" with collaborative "explain before structural changes" approach.
+- README updated to reflect reasoning display, K3 prompt behavior, and model switch warning.
+
 ## [1.4.3] - 2026-07-17 (K3 Fork)
 
 ### Added
