@@ -34,6 +34,8 @@ export interface DailyUsage {
 }
 
 // ── Pricing (platform.kimi.ai/docs/pricing) ─────────────────────────
+// K2.x models use the Kimi platform pricing.
+// K3 uses Moonshot platform pricing — official rates from platform.kimi.ai/docs/pricing/chat-k3.
 
 export const PRICING: Record<string, PricingConfig> = {
 	'kimi-k2.7-code': {
@@ -56,10 +58,14 @@ export const PRICING: Record<string, PricingConfig> = {
 		outputPricePer1M: 1.0,
 		cachedInputPricePer1M: 0.25,
 	},
+	// Kimi K3 official pricing (platform.kimi.ai/docs/pricing/chat-k3):
+	//   Input (cache hit):  $0.30 / 1M tokens
+	//   Input (cache miss): $3.00 / 1M tokens
+	//   Output:             $15.00 / 1M tokens
 	'kimi-k3': {
-		inputPricePer1M: 0.5,
-		outputPricePer1M: 1.0,
-		cachedInputPricePer1M: 0.25,
+		inputPricePer1M: 3.00,
+		outputPricePer1M: 15.00,
+		cachedInputPricePer1M: 0.30,
 	},
 };
 
@@ -135,6 +141,7 @@ const USAGE_STATE_KEY = 'kimiCopilot.dailyUsage';
 export class UsageTracker {
 	private daily: DailyUsage;
 	private statusBarItem: vscode.StatusBarItem | undefined;
+	private balance: number | undefined;
 
 	constructor(private readonly state: vscode.Memento) {
 		const today = new Date().toISOString().slice(0, 10);
@@ -175,17 +182,27 @@ export class UsageTracker {
 	private updateStatusBar(): void {
 		if (!this.statusBarItem) return;
 		const d = this.daily;
-		this.statusBarItem.text = `$(zap) Kimi: ${formatCost(d.totalCost)}`;
+		const balanceStr = this.balance !== undefined
+			? `$${this.balance.toFixed(2)}`
+			: `~${formatCost(d.totalCost)}`;
+		this.statusBarItem.text = `$(zap) Kimi: ${balanceStr}`;
 		this.statusBarItem.tooltip = new vscode.MarkdownString(
 			[
 				`**Kimi Usage Today** (${d.date})`,
 				``,
+				`Balance: ${this.balance !== undefined ? `$${this.balance.toFixed(4)}` : 'unknown'}`,
 				`Requests: ${d.totalRequests}`,
 				`Tokens: ${formatTokens(d.totalPromptTokens)} in → ${formatTokens(d.totalCompletionTokens)} out`,
 				`Cost: ${formatCost(d.totalCost)}`,
 				`Cache hits: ${d.cacheHitRate.toFixed(1)}%`,
 			].join('\n\n'),
 		);
+	}
+
+	/** Set the current API balance (called after each successful request). */
+	setBalance(availableBalance: number): void {
+		this.balance = availableBalance;
+		this.updateStatusBar();
 	}
 
 	/** Record a completed API request. */

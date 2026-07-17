@@ -9,7 +9,18 @@ export interface KimiMessage {
 	content: string;
 	tool_call_id?: string;
 	tool_calls?: KimiToolCall[];
+	name?: string;
+	partial?: boolean;
 }
+
+/** K3-only: dynamic tool injection message (system role, no content). */
+export interface KimiK3DynamicToolMessage {
+	role: 'system';
+	tools: KimiTool[];
+}
+
+/** Union for all Kimi message types. */
+export type AnyKimiMessage = KimiMessage | KimiK3DynamicToolMessage;
 
 export interface KimiToolCall {
 	id: string;
@@ -33,8 +44,7 @@ export interface KimiUsage {
 	prompt_tokens: number;
 	completion_tokens: number;
 	total_tokens: number;
-	prompt_cache_hit_tokens?: number;
-	prompt_cache_miss_tokens?: number;
+	cached_tokens?: number;
 }
 
 export interface KimiRequest {
@@ -43,14 +53,18 @@ export interface KimiRequest {
 	stream: boolean;
 	temperature?: number;
 	top_p?: number;
-	max_tokens?: number;
+	max_completion_tokens?: number;
 	presence_penalty?: number;
 	frequency_penalty?: number;
 	thinking?: { type: 'enabled' | 'disabled'; keep?: 'all' };
 	reasoning_effort?: 'max';
 	tools?: KimiTool[];
-	tool_choice?: 'none' | 'auto' | 'required';
-	response_format?: { type: 'json_object' | 'text' };
+	tool_choice?: 'none' | 'auto' | 'required' | { type: 'function'; function: { name: string } };
+	response_format?: { type: 'json_object' | 'text' | 'json_schema'; json_schema?: Record<string, unknown> };
+	stop?: string | string[];
+	stream_options?: { include_usage?: boolean };
+	prompt_cache_key?: string;
+	safety_identifier?: string;
 }
 
 export interface KimiStreamChunk {

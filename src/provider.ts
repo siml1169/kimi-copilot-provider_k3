@@ -164,9 +164,10 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             stream: enableStreaming,
             temperature,
             top_p: topP,
-            max_tokens: extras?.testMode ? 1 : maxTokens,
+            max_completion_tokens: extras?.testMode ? 1 : maxTokens,
             presence_penalty: presencePenalty,
             frequency_penalty: frequencyPenalty,
+            stream_options: enableStreaming ? { include_usage: true } : undefined,
         };
 
         if (isK3) {
@@ -183,10 +184,21 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             request.top_p = modelDefaults?.topP ?? 0.95;
         }
 
+        // K3 best practices (platform.kimi.ai/docs/guide/kimi-k3-tool-calling-best-practice):
+        // - tool_choice "required" forces retrieval on first turn (K3-only feature)
+        // - keep tool list minimal; use search_tools for large inventories
+        // - changing tool_choice does NOT invalidate prefix cache
+        if (isK3 && toolCallingEnabled) {
+            // For K3 with tools, use "required" on the first turn to force retrieval.
+            // The extension cannot know conversation state across requests, so we rely on
+            // Copilot Chat's built-in tool orchestration — K3 supports "auto"/"none"/"required".
+        }
+
         // Convert tools if the model supports tool calling
         const tools = convertTools(toolCallingEnabled, options.tools);
         if (tools && tools.length > 0) {
             request.tools = tools;
+            // K3 supports "required"; K2.x does not. Use "auto" by default.
             request.tool_choice = toolCallingEnabled ? 'auto' : 'none';
         }
 
@@ -253,7 +265,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
 
     /** Record token usage from a completed request and log the summary. */
     private recordUsage(
-        usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; prompt_cache_hit_tokens?: number } | undefined,
+        usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number } | undefined,
         modelId: string,
     ): void {
         if (!usage || usage.prompt_tokens === 0) return;
@@ -261,7 +273,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         const record: UsageRecord = {
             promptTokens: usage.prompt_tokens,
             completionTokens: usage.completion_tokens,
-            cachedTokens: usage.prompt_cache_hit_tokens ?? 0,
+            cachedTokens: usage.cached_tokens ?? 0,
             totalTokens: usage.total_tokens,
             model: modelId,
             timestamp: Date.now(),
@@ -269,6 +281,37 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
 
         this.usageTracker?.record(record);
         this.outputChannel.info(`📊 ${formatUsageSummary(record)}`);
+
+        // Opportunistically refresh balance after each request
+        this.refreshBalance().catch(() => { /* best-effort */ });
+    }
+
+    /** Fetch current balance from Kimi API and update the status bar. */
+    private async refreshBalance(): Promise<void> {
+        const tracker = this.usageTracker;
+        if (!tracker) return;
+
+        try {
+            const apiKey = await this.configManager.getApiKey();
+            if (!apiKey) return;
+
+            const baseUrl = this.configManager.getBaseUrl();
+            const response = await fetch(`${baseUrl}/v1/users/me/balance`, {
+                headers: { Authorization: `Bearer ${apiKey}` },
+            });
+
+            if (!response.ok) return;
+
+            const data = (await response.json()) as {
+                data?: { available_balance?: number };
+            };
+            const balance = data?.data?.available_balance;
+            if (balance !== undefined) {
+                tracker.setBalance(balance);
+            }
+        } catch {
+            // Silently fail — balance is nice-to-have
+        }
     }
 
     // ── Token counting ─────────────────────────────────────────────
