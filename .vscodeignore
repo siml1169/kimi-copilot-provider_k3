@@ -7,10 +7,12 @@ node_modules/
 .gitignore
 .git/**
 tsconfig.json
+tsconfig.unit.json
 .prettierrc
 **/*.ts
 **/*.map
 *.log
 *.code-workspace
 out/test/**
+out-unit/**
 **/eslint.config.js

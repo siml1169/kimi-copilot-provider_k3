@@ -2,8 +2,11 @@ import * as vscode from 'vscode';
 import { ConfigurationManager } from './config';
 import { MODELS, toChatInfo, getModelCapabilities, getMaxOutputTokens, getModelDefaults } from './models';
 import { UsageTracker, type UsageRecord, formatUsageSummary } from './usage';
-import { createThinkingPart } from './thinking';
-import type { KimiMessage, KimiTool, KimiToolCall, KimiRequest, KimiStreamChunk } from './types';
+import { createThinkingPart, isThinkingPartLike, getThinkingPartValue } from './thinking';
+import { jitteredBackoff, isRetryableNetworkError, isRetryableStatus, sleep } from './retry';
+import { estimateTokens } from './tokenize';
+import { contextFillWarning, cacheMissWarning, type ThresholdWarning } from './warnings';
+import type { KimiMessage, KimiTool, KimiToolCall, KimiRequest, KimiStreamChunk, KimiContentPart, ModelConfigOverride } from './types';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Constants
@@ -108,14 +111,19 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             report: () => { /* no-op */ },
         };
 
-        await this.doChatRequest(
-            toChatInfo(modelInfo, true, this.configManager.getModelConfig(modelInfo.id)),
-            [vscode.LanguageModelChatMessage.User('ping')],
-            { toolMode: vscode.LanguageModelChatToolMode.Auto },
-            fakeProgress,
-            token ?? new vscode.CancellationTokenSource().token,
-            { testMode: true },
-        );
+        const cts = new vscode.CancellationTokenSource();
+        try {
+            await this.doChatRequest(
+                toChatInfo(modelInfo, true, this.configManager.getModelConfig(modelInfo.id)),
+                [vscode.LanguageModelChatMessage.User('ping')],
+                { toolMode: vscode.LanguageModelChatToolMode.Auto },
+                fakeProgress,
+                token ?? cts.token,
+                { testMode: true },
+            );
+        } finally {
+            cts.dispose();
+        }
     }
 
     private async doChatRequest(
@@ -140,94 +148,20 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         const endpoint = isK3
             ? this.configManager.getK3Endpoint()
             : this.configManager.getEndpoint() || DEFAULT_ENDPOINT;
-        const modelName = this.configManager.getApiModelId(modelInfo.id);
-        const modelConfig = this.configManager.getModelConfig(modelInfo.id);
-        const modelDefaults = getModelDefaults(modelInfo.id);
-
-        // Effective parameters: model config > global setting > hard-coded model default.
-        const temperature =
-            modelConfig.temperature ??
-            this.configManager.getTemperature() ??
-            modelDefaults?.temperature ??
-            1.0;
-        const topP =
-            modelConfig.topP ?? this.configManager.getTopP() ?? modelDefaults?.topP ?? 0.95;
-        const presencePenalty =
-            modelConfig.presencePenalty ??
-            this.configManager.getPresencePenalty(modelInfo.id) ??
-            0.0;
-        const frequencyPenalty =
-            modelConfig.frequencyPenalty ??
-            this.configManager.getFrequencyPenalty(modelInfo.id) ??
-            0.0;
-        const thinking =
-            modelConfig.thinking ??
-            this.configManager.getThinking(modelInfo.id) ??
-            modelDefaults?.thinking;
-
-        const maxTokensSetting = this.configManager.getMaxTokens(modelInfo.id);
-        const maxOutputTokens = modelConfig.maxOutputTokens ?? getMaxOutputTokens(modelInfo.id);
-        const maxTokens = maxTokensSetting > 0 ? maxTokensSetting : maxOutputTokens;
-
         const enableStreaming = extras?.testMode ? false : this.configManager.getEnableStreaming();
         const timeout = this.configManager.getTimeout();
-        const systemPrompt = this.configManager.getSystemPrompt(modelInfo.id);
 
-        const capabilities = getModelCapabilities(modelInfo.id);
-        const toolCallingEnabled = modelConfig.toolCalling ?? capabilities?.toolCalling ?? false;
-
-        // Convert messages to API format and prepend system prompt
-        const allMessages = convertMessages(messages);
-        if (!allMessages.some((m) => m.role === 'system')) {
-            allMessages.unshift({ role: 'system', content: systemPrompt });
-        }
-
-        const request: KimiRequest = {
-            model: modelName,
-            messages: allMessages,
-            stream: enableStreaming,
-            temperature,
-            top_p: topP,
-            max_completion_tokens: extras?.testMode ? 1 : maxTokens,
-            presence_penalty: presencePenalty,
-            frequency_penalty: frequencyPenalty,
-            stream_options: enableStreaming ? { include_usage: true } : undefined,
-        };
-
-        if (isK3) {
-            // K3: always-on reasoning via reasoning_effort, not thinking
-            request.reasoning_effort = modelDefaults?.reasoning_effort ?? 'max';
-            // K3 fixed top_p: 0.95
-            request.top_p = 0.95;
-        } else if (thinking) {
-            request.thinking = thinking;
-        }
-
-        // K2.7 API requires top_p: 0.95 exactly — enforce even if user overrides.
-        if (modelInfo.id.startsWith('kimi-k2.7')) {
-            request.top_p = modelDefaults?.topP ?? 0.95;
-        }
-
-        // K3 best practices (platform.kimi.ai/docs/guide/kimi-k3-tool-calling-best-practice):
-        // - tool_choice "required" forces retrieval on first turn (K3-only feature)
-        // - keep tool list minimal; use search_tools for large inventories
-        // - changing tool_choice does NOT invalidate prefix cache
-        if (isK3 && toolCallingEnabled) {
-            // For K3 with tools, use "required" on the first turn to force retrieval.
-            // The extension cannot know conversation state across requests, so we rely on
-            // Copilot Chat's built-in tool orchestration — K3 supports "auto"/"none"/"required".
-        }
-
-        // Convert tools if the model supports tool calling
-        const tools = convertTools(toolCallingEnabled, options.tools);
-        if (tools && tools.length > 0) {
-            request.tools = tools;
-            // K3 supports "required"; K2.x does not. Use "auto" by default.
-            request.tool_choice = toolCallingEnabled ? 'auto' : 'none';
-        }
+        const { request, tools } = buildKimiRequest({
+            modelInfo,
+            messages,
+            options,
+            configManager: this.configManager,
+            enableStreaming,
+            testMode: extras?.testMode,
+        });
 
         this.outputChannel.info(
-            `→ ${allMessages.length} messages + ${tools?.length ?? 0} tools → ${endpoint} (model: ${modelName})`,
+            `→ ${request.messages.length} messages + ${tools?.length ?? 0} tools → ${endpoint} (model: ${request.model})`,
         );
 
         const startTime = Date.now();
@@ -255,10 +189,10 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
 
             if (enableStreaming) {
                 const usage = await streamSSEResponse(response, progress, token, this.outputChannel);
-                this.recordUsage(usage, modelName);
+                this.recordUsage(usage, request.model, modelInfo.maxInputTokens);
             } else {
                 const usage = await completeResponse(response, progress, this.outputChannel);
-                this.recordUsage(usage, modelName);
+                this.recordUsage(usage, request.model, modelInfo.maxInputTokens);
             }
 
             this.outputChannel.info(`← completed in ${Date.now() - startTime}ms`);
@@ -291,6 +225,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     private recordUsage(
         usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number } | undefined,
         modelId: string,
+        maxInputTokens?: number,
     ): void {
         if (!usage || usage.prompt_tokens === 0) return;
 
@@ -306,15 +241,68 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         this.usageTracker?.record(record);
         this.outputChannel.info(`📊 ${formatUsageSummary(record)}`);
 
+        // Quality/cost guardrails.
+        this.maybeWarnContextFill(usage.prompt_tokens, maxInputTokens, modelId);
+        this.maybeWarnCacheMiss();
+
         // Opportunistically refresh balance after each request, using the same
         // model's effective key so K3-keyed accounts get balance too.
         this.refreshBalance(modelId).catch(() => { /* best-effort */ });
     }
 
-    /** Fetch current balance from Kimi API and update the status bar. */
+    // ── Guardrail warnings (context fill + cache miss) ─────────────
+
+    /** Notification keys already shown this session, to avoid spam. */
+    private readonly shownWarnings = new Set<string>();
+
+    private maybeWarnContextFill(promptTokens: number, maxInputTokens: number | undefined, modelName: string): void {
+        if (!this.configManager.getWarnOnContextFill() || !maxInputTokens) return;
+        const w = contextFillWarning(promptTokens, maxInputTokens, this.configManager.getContextWarnThreshold(), modelName);
+        this.showWarningOnce(w);
+    }
+
+    private maybeWarnCacheMiss(): void {
+        if (!this.configManager.getWarnOnCacheMiss()) return;
+        const stats = this.usageTracker?.getStats();
+        if (!stats) return;
+        const w = cacheMissWarning(
+            stats.totalPromptTokens,
+            stats.totalCachedTokens,
+            this.configManager.getCacheMissWarnThreshold(),
+        );
+        this.showWarningOnce(w);
+    }
+
+    private showWarningOnce(w: ThresholdWarning | null): void {
+        if (!w || this.shownWarnings.has(w.key)) return;
+        this.shownWarnings.add(w.key);
+
+        if (w.severity === 'warning') {
+            this.outputChannel.warn(`⚠️ ${w.message}`);
+        } else {
+            this.outputChannel.info(`ℹ️ ${w.message}`);
+        }
+        // Surface to the user without blocking the chat flow.
+        vscode.window.showWarningMessage(`Kimi: ${w.message}`, 'Dismiss').then(
+            () => { /* dismissed */ },
+            () => { /* ignored */ },
+        );
+    }
+
+    private lastBalanceFetch = 0;
+    private static readonly BALANCE_DEBOUNCE_MS = 30_000;
+
+    /** Fetch current balance from Kimi API and update the status bar. Debounced. */
     private async refreshBalance(modelId?: string): Promise<void> {
         const tracker = this.usageTracker;
         if (!tracker) return;
+
+        // Debounce: parallel chat requests would otherwise fire N concurrent calls.
+        const now = Date.now();
+        if (now - this.lastBalanceFetch < KimiChatProvider.BALANCE_DEBOUNCE_MS) {
+            return;
+        }
+        this.lastBalanceFetch = now;
 
         try {
             // Use the same key the request succeeded with (K3 key for K3 models,
@@ -366,9 +354,9 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         _token: vscode.CancellationToken,
     ): Promise<number> {
         if (typeof text === 'string') {
-            return Math.max(1, Math.ceil(text.length / 3.5));
+            return estimateTokens(text);
         }
-        return Math.max(1, Math.ceil(extractTextContent(text).length / 3.5));
+        return estimateTokens(extractTextContent(text));
     }
 
     // ── Cleanup ────────────────────────────────────────────────────
@@ -389,10 +377,19 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         token: vscode.CancellationToken,
         attempt = 1,
         maxRetries = 3,
+        deadlineMs?: number,
     ): Promise<Response> {
+        // Overall budget: don't retry forever. Default = 3× per-request timeout.
+        if (deadlineMs === undefined) {
+            deadlineMs = Date.now() + timeoutMs * maxRetries;
+        }
+
         // Check cancellation before each attempt.
         if (token.isCancellationRequested) {
             throw new vscode.LanguageModelError('Request was cancelled.');
+        }
+        if (Date.now() >= deadlineMs) {
+            throw new vscode.LanguageModelError('Kimi API request exceeded its overall retry budget.');
         }
 
         let response: Response;
@@ -400,29 +397,22 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             response = await this.fetchWithTimeout(url, init, timeoutMs, token);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            const isRetryable =
-                message.includes('timed out') ||
-                message.includes('fetch failed') ||
-                message.includes('ENOTFOUND') ||
-                message.includes('ECONNREFUSED') ||
-                message.includes('ECONNRESET');
-
-            if (isRetryable && attempt < maxRetries) {
-                const delay = Math.min(1000 * 2 ** attempt, 8000);
+            if (isRetryableNetworkError(message) && attempt < maxRetries && Date.now() < deadlineMs) {
+                const delay = jitteredBackoff(attempt);
                 this.outputChannel.warn(
                     `Network error, retrying in ${delay}ms (attempt ${attempt}/${maxRetries}): ${message}`,
                 );
-                await new Promise((resolve) => setTimeout(resolve, delay));
-                return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1, maxRetries);
+                await sleep(delay);
+                return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1, maxRetries, deadlineMs);
             }
 
             throw err;
         }
 
         // Retry on HTTP 429 (rate limit) and 5xx (server errors).
-        if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+        if (isRetryableStatus(response.status) && attempt < maxRetries && Date.now() < deadlineMs) {
             // Honor Retry-After header if present.
-            let delay = Math.min(1000 * 2 ** attempt, 8000);
+            let delay = jitteredBackoff(attempt);
             const retryAfter = response.headers.get('Retry-After');
             if (retryAfter) {
                 const seconds = parseInt(retryAfter, 10);
@@ -437,8 +427,8 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             this.outputChannel.warn(
                 `HTTP ${response.status}, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`,
             );
-            await new Promise((resolve) => setTimeout(resolve, delay));
-            return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1, maxRetries);
+            await sleep(delay);
+            return this.fetchWithRetry(url, init, timeoutMs, token, attempt + 1, maxRetries, deadlineMs);
         }
 
         return response;
@@ -536,6 +526,21 @@ export function extractTextContent(
     return parts.join('\n');
 }
 
+/** Convert a binary image part to a Kimi image_url content part. */
+function toImageContentPart(part: vscode.LanguageModelDataPart): KimiContentPart | undefined {
+    const mime = part.mimeType || 'image/png';
+    if (!mime.startsWith('image/')) return undefined;
+    let binary = '';
+    const bytes = part.data;
+    for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return {
+        type: 'image_url',
+        image_url: { url: `data:${mime};base64,${Buffer.from(binary, 'binary').toString('base64')}` },
+    };
+}
+
 export function convertMessages(
     messages: readonly vscode.LanguageModelChatRequestMessage[],
 ): KimiMessage[] {
@@ -544,12 +549,16 @@ export function convertMessages(
     for (const message of messages) {
         const role = roleToString(message.role);
         let content = '';
+        let reasoning = '';
+        const contentParts: KimiContentPart[] = [];
+        let sawImage = false;
         const toolCalls: KimiToolCall[] = [];
         const toolResults: Array<{ callId: string; content: string }> = [];
 
         for (const part of message.content) {
             if (part instanceof vscode.LanguageModelTextPart) {
                 content += part.value;
+                contentParts.push({ type: 'text', text: part.value });
             } else if (part instanceof vscode.LanguageModelToolCallPart) {
                 toolCalls.push({
                     id: part.callId,
@@ -574,22 +583,41 @@ export function convertMessages(
                     callId: part.callId,
                     content: toolContentParts.length > 0 ? toolContentParts.join('\n') : JSON.stringify(part.content),
                 });
+            } else if (part instanceof vscode.LanguageModelDataPart) {
+                const img = toImageContentPart(part);
+                if (img) {
+                    sawImage = true;
+                    contentParts.push(img);
+                }
+            } else if (isThinkingPartLike(part)) {
+                // K3/K2.7: capture prior reasoning so it can be echoed back.
+                reasoning += getThinkingPartValue(part);
             }
         }
 
         if (role === 'assistant') {
-            if (content || toolCalls.length > 0) {
+            if (content || toolCalls.length > 0 || reasoning) {
                 const msg: KimiMessage = {
                     role: 'assistant',
                     content: content || '',
                 };
+                if (reasoning) {
+                    msg.reasoning_content = reasoning;
+                }
                 if (toolCalls.length > 0) {
                     msg.tool_calls = toolCalls;
                 }
                 result.push(msg);
             }
         } else {
-            if (content) {
+            if (sawImage) {
+                // User message containing images → use multipart content array.
+                // Ensure there's at least one text part so the payload is valid.
+                const parts = contentParts.some((p) => p.type === 'text')
+                    ? contentParts
+                    : [{ type: 'text', text: '' } as KimiContentPart, ...contentParts];
+                result.push({ role: 'user', content: parts });
+            } else if (content) {
                 result.push({ role: role as 'user' | 'assistant', content });
             }
         }
@@ -623,6 +651,97 @@ export function convertTools(
             parameters: tool.inputSchema as Record<string, unknown> | undefined,
         },
     }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Request building (pure — exported for testing)
+// ═══════════════════════════════════════════════════════════════════════
+
+export interface BuildRequestContext {
+    modelInfo: vscode.LanguageModelChatInformation;
+    messages: readonly vscode.LanguageModelChatRequestMessage[];
+    options: vscode.ProvideLanguageModelChatResponseOptions;
+    configManager: ConfigurationManager;
+    enableStreaming: boolean;
+    testMode?: boolean;
+}
+
+/**
+ * Build the Kimi API request payload. Pure with respect to the provided
+ * context (no network or I/O), so it can be unit-tested directly.
+ *
+ * Precedence: per-model config > global setting > hard-coded model default.
+ */
+export function buildKimiRequest(ctx: BuildRequestContext): { request: KimiRequest; tools: KimiTool[] | undefined } {
+    const { modelInfo, messages, options, configManager, enableStreaming, testMode } = ctx;
+    const isK3 = modelInfo.id.startsWith('kimi-k3');
+    const modelName = configManager.getApiModelId(modelInfo.id);
+    const modelConfig: ModelConfigOverride = configManager.getModelConfig(modelInfo.id);
+    const modelDefaults = getModelDefaults(modelInfo.id);
+
+    const temperature =
+        modelConfig.temperature ??
+        configManager.getTemperature() ??
+        modelDefaults?.temperature ??
+        1.0;
+    const topP =
+        modelConfig.topP ?? configManager.getTopP() ?? modelDefaults?.topP ?? 0.95;
+    const presencePenalty =
+        modelConfig.presencePenalty ?? configManager.getPresencePenalty(modelInfo.id) ?? 0.0;
+    const frequencyPenalty =
+        modelConfig.frequencyPenalty ?? configManager.getFrequencyPenalty(modelInfo.id) ?? 0.0;
+    const thinking =
+        modelConfig.thinking ?? configManager.getThinking(modelInfo.id) ?? modelDefaults?.thinking;
+
+    const maxTokensSetting = configManager.getMaxTokens(modelInfo.id);
+    const maxOutputTokens = modelConfig.maxOutputTokens ?? getMaxOutputTokens(modelInfo.id);
+    const maxTokens = maxTokensSetting > 0 ? maxTokensSetting : maxOutputTokens;
+
+    const systemPrompt = configManager.getSystemPrompt(modelInfo.id);
+    const capabilities = getModelCapabilities(modelInfo.id);
+    const toolCallingEnabled = modelConfig.toolCalling ?? capabilities?.toolCalling ?? false;
+
+    const allMessages = convertMessages(messages);
+    if (!allMessages.some((m) => m.role === 'system')) {
+        allMessages.unshift({ role: 'system', content: systemPrompt });
+    }
+
+    const request: KimiRequest = {
+        model: modelName,
+        messages: allMessages,
+        stream: enableStreaming,
+        temperature,
+        top_p: topP,
+        max_completion_tokens: testMode ? 1 : maxTokens,
+        presence_penalty: presencePenalty,
+        frequency_penalty: frequencyPenalty,
+        stream_options: enableStreaming ? { include_usage: true } : undefined,
+    };
+
+    if (isK3) {
+        // K3: always-on reasoning via reasoning_effort, not thinking.
+        request.reasoning_effort = modelDefaults?.reasoning_effort ?? 'max';
+        // K3 fixed top_p.
+        request.top_p = 0.95;
+    } else if (thinking) {
+        request.thinking = thinking;
+    }
+
+    // K2.7 API requires top_p: 0.95 exactly — enforce even if user overrides.
+    if (modelInfo.id.startsWith('kimi-k2.7')) {
+        request.top_p = modelDefaults?.topP ?? 0.95;
+    }
+
+    // Convert tools if the model supports tool calling.
+    const tools = convertTools(toolCallingEnabled, options.tools);
+    if (tools && tools.length > 0) {
+        request.tools = tools;
+        // K3 supports "required"; K2.x does not. Use "auto" by default and let
+        // Copilot Chat's tool orchestration drive multi-turn behaviour.
+        request.tool_choice = toolCallingEnabled ? 'auto' : 'none';
+    }
+
+    return { request, tools };
 }
 
 // ═══════════════════════════════════════════════════════════════════════

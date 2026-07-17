@@ -4,11 +4,20 @@
 
 // ---- API request/response types ----
 
+/** Multi-modal content part (image) inside a user message. */
+export interface KimiContentPart {
+	type: 'text' | 'image_url';
+	text?: string;
+	image_url?: { url: string };
+}
+
 export interface KimiMessage {
 	role: 'system' | 'user' | 'assistant' | 'tool';
-	content: string;
+	content: string | KimiContentPart[];
 	tool_call_id?: string;
 	tool_calls?: KimiToolCall[];
+	/** K2.7/K3 reasoning history that must be echoed back on subsequent turns. */
+	reasoning_content?: string;
 	name?: string;
 	partial?: boolean;
 }

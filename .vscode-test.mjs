@@ -8,7 +8,7 @@ const extensionDevelopmentPath = path.resolve(__dirname, '.');
 export default defineConfig({
     label: 'unit',
     files: 'out/test/**/*.test.js',
-    version: 'insiders',
+    version: 'stable',
     workspaceFolder: extensionDevelopmentPath,
     mocha: {
         ui: 'tdd',

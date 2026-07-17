@@ -2,7 +2,7 @@
   "name": "kimi3-copilot-provider",
   "displayName": "Kimi3 Copilot Provider",
   "description": "Use Kimi K2, K2.7, and K3 models as a custom language model provider for GitHub Copilot Chat (fork with K3 support)",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "publisher": "Webboy998",
   "license": "MIT",
   "icon": "icon.png",
@@ -225,6 +225,30 @@
           "default": true,
           "description": "Enable SSE streaming responses."
         },
+        "kimi3Copilot.warnOnContextFill": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a conversation fills a large fraction of the model's context window (quality degrades in long contexts)."
+        },
+        "kimi3Copilot.contextWarnThreshold": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0.1,
+          "maximum": 1,
+          "description": "Fraction of the context window (0–1) that triggers a fill warning. Kimi does not publish an official degradation point; 0.8 (80%) is a common safe default."
+        },
+        "kimi3Copilot.warnOnCacheMiss": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when the prefix-cache miss rate is high (most prompt tokens re-processed at full cost)."
+        },
+        "kimi3Copilot.cacheMissWarnThreshold": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0.1,
+          "maximum": 1,
+          "description": "Cache-miss fraction (0–1) that triggers a warning. High miss rates mean the conversation prefix keeps changing and caching is not helping."
+        },
         "kimi3Copilot.systemPrompt": {
           "type": "string",
           "default": "You are Kimi, an AI assistant provided by Moonshot AI. You are proficient in Chinese and English conversations. You provide users with safe, helpful, and accurate answers. You will reject any questions involving terrorism, racism, or explicit content. Moonshot AI is a proper noun and should not be translated.",
@@ -239,6 +263,8 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src",
     "format": "prettier --write src",
+    "compile:unit": "tsc -p tsconfig.unit.json",
+    "test:unit": "npm run compile:unit && mocha --ui tdd \"out-unit/test/pure.test.js\"",
     "test": "vscode-test"
   },
   "devDependencies": {
@@ -249,7 +275,6 @@
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.0.0",
     "prettier": "^3.3.0",
-    "sharp": "^0.35.3",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.0.0"
   }

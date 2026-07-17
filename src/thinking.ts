@@ -26,6 +26,34 @@ const ThinkingPartImpl: ThinkingPartCtor | undefined = (
 export const supportsThinkingPart = ThinkingPartImpl !== undefined;
 
 /**
+ * Structural check: does this value look like a Thinking part?
+ * Matches both the real `LanguageModelThinkingPart` (constructor name) and
+ * any test mock that exposes a string `value` and `id` without a `callId`.
+ */
+export function isThinkingPartLike(part: unknown): part is { value: string } {
+    if (!part || typeof part !== 'object') return false;
+    const ctor = (part as { constructor?: { name?: string } }).constructor?.name;
+    if (ctor === 'LanguageModelThinkingPart') return true;
+    // Structural fallback: has a string value but is not a tool part.
+    const p = part as Record<string, unknown>;
+    return (
+        typeof p['value'] === 'string' &&
+        !('callId' in p) &&
+        ctor !== 'LanguageModelToolCallPart' &&
+        ctor !== 'LanguageModelToolResultPart' &&
+        ctor !== 'LanguageModelTextPart' &&
+        ctor !== 'LanguageModelDataPart' &&
+        ctor !== 'LanguageModelPromptTsxPart'
+    );
+}
+
+/** Extract the string value of a thinking-like part. */
+export function getThinkingPartValue(part: unknown): string {
+    const v = (part as { value?: unknown }).value;
+    return typeof v === 'string' ? v : '';
+}
+
+/**
  * Create a response part carrying chain-of-thought text.
  *
  * Mirrors the approach used by other working providers (e.g. the DeepSeek V4

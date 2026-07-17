@@ -80,6 +80,32 @@ When a K3 key is set it takes priority for K3 requests and falls back to the mai
 | `kimi3Copilot.enableStreaming` | `true` | Enable SSE streaming |
 | `kimi3Copilot.modelConfigs` | `{}` | Per-model JSON overrides (temperature, topP, maxOutputTokens, systemPrompt, toolCalling, etc.) |
 | `kimi3Copilot.modelIdOverrides` | `{}` | Remap picker model IDs to custom API model IDs |
+| `kimi3Copilot.warnOnContextFill` | `true` | Warn when the conversation fills much of the context window |
+| `kimi3Copilot.contextWarnThreshold` | `0.8` | Context-fill fraction (0–1) that triggers a fill warning |
+| `kimi3Copilot.warnOnCacheMiss` | `true` | Warn when the prefix-cache miss rate is high |
+| `kimi3Copilot.cacheMissWarnThreshold` | `0.8` | Cache-miss fraction (0–1) that triggers a warning |
+
+## Quality & Cost Guardrails
+
+Two optional, non-blocking warnings help you avoid degraded output and wasted spend. Each fires at most once per threshold-bucket per session (no notification spam) and is written to the **Kimi3 Copilot** output channel.
+
+### Context-window fill
+
+Models degrade in very long contexts (lost-in-the-middle, higher latency/cost) well before the hard token limit. Kimi does not publish an official degradation point, so the extension warns at a configurable **80%** fill by default, computed from the *actual* `usage.prompt_tokens` returned by each response against the model's advertised input budget.
+
+> **How context is managed:** GitHub Copilot Chat (not the Kimi API) trims conversation history to fit the `maxInputTokens` this provider reports — there is no server-side context compression for BYOK providers. The warning tells you *before* quality drops, so you can start a fresh chat. When a warning appears you'll see something like:
+>
+> `Kimi: Context is 82% full for kimi-k3 (858,993 / 1,048,576 tokens). Models degrade in long contexts — consider starting a fresh chat.`
+
+Tune or disable via `kimi3Copilot.contextWarnThreshold` / `kimi3Copilot.warnOnContextFill`.
+
+### High cache-miss rate
+
+Kimi's prefix cache makes repeated system/tool context cheap (for K3, cached input is $0.30/1M vs $3.00/1M uncached). If the conversation prefix keeps changing — e.g. tools being added/removed, or earlier messages edited — the cache can't help and you pay full price. The extension warns when the daily **cache-miss rate exceeds 80%** (after a 10K-token warm-up so cold starts don't trigger it).
+
+> `Kimi: Cache miss rate is 95% — most prompt tokens are being re-processed at full cost. Keep the conversation prefix stable to reuse Kimi's prefix cache.`
+
+Tune or disable via `kimi3Copilot.cacheMissWarnThreshold` / `kimi3Copilot.warnOnCacheMiss`.
 
 ## Cost & Usage Tracking
 

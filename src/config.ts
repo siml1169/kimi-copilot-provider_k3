@@ -186,6 +186,26 @@ export class ConfigurationManager {
 		return this.config.get<boolean>('enableStreaming', true);
 	}
 
+	/** Context-fill fraction (0–1) at which to warn. Default 0.8 (80%). */
+	getContextWarnThreshold(): number {
+		return this.config.get<number>('contextWarnThreshold', 0.8);
+	}
+
+	/** Whether to show context-window-fill warnings. Default true. */
+	getWarnOnContextFill(): boolean {
+		return this.config.get<boolean>('warnOnContextFill', true);
+	}
+
+	/** Cache-miss fraction (0–1) at which to warn. Default 0.8 (80%). */
+	getCacheMissWarnThreshold(): number {
+		return this.config.get<number>('cacheMissWarnThreshold', 0.8);
+	}
+
+	/** Whether to show high cache-miss warnings. Default true. */
+	getWarnOnCacheMiss(): boolean {
+		return this.config.get<boolean>('warnOnCacheMiss', true);
+	}
+
 	getSystemPrompt(modelId?: string): string {
 		if (modelId) {
 			const modelConfig = this.getModelConfig(modelId);

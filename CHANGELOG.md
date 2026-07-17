@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-07-17 (K3 Fork)
+
+### Added
+- **Context-window fill warning** — warns when a conversation fills a configurable fraction (default **80%**) of the model's context window, computed from the actual `usage.prompt_tokens` against the model's advertised input budget. Models degrade in long contexts well before the hard limit; the warning suggests starting a fresh chat. New settings: `kimi3Copilot.warnOnContextFill`, `kimi3Copilot.contextWarnThreshold`.
+- **High cache-miss warning** — warns when the daily prefix-cache miss rate exceeds a configurable fraction (default **80%**, after a 10K-token warm-up to ignore cold starts). High miss rates mean the conversation prefix keeps changing and Kimi's prefix cache isn't helping. New settings: `kimi3Copilot.warnOnCacheMiss`, `kimi3Copilot.cacheMissWarnThreshold`.
+- New pure module `src/warnings.ts` (`contextFillWarning`, `cacheMissWarning`) — no `vscode` dependency, unit-tested in plain Node. Warnings are de-duplicated per threshold-bucket per session and logged to the output channel.
+
+### Changed
+- **K3/K2.7 thinking history is now echoed back** — `convertMessages` captures `reasoning_content` from prior assistant turns and re-attaches it, required for K3 multi-turn reasoning continuity.
+- **Image input support** — `LanguageModelDataPart` images are now converted to base64 `image_url` multipart content (K2.5/K2.6/K3). Previously images were silently dropped.
+- **Token counting is now CJK-aware** (`src/tokenize.ts`) — CJK chars ×1.5, Latin ÷4, biased slightly high so Copilot truncates before the API limit.
+- **Retry hardening** — exponential backoff now has ±50% jitter and an overall deadline budget; balance fetches are debounced (30s) to avoid concurrent-call bursts.
+- Refactored request building into a pure `buildKimiRequest()`; extracted pure `usageMath.ts` / `retry.ts` modules. Fixed a `CancellationTokenSource` leak in Test Connection and removed a dead K3 block.
+- Removed unused `sharp` dependency and dead `src/test/runTest.ts`; vscode-test now targets `stable`.
+- New fast plain-Node unit-test tier (`npm run test:unit`, 32 tests) alongside the Extension-Host suite. Docs (`AGENTS.md`, `README.md`) updated for the new settings, modules, and test commands.
+
 ## [1.5.2] - 2026-07-17 (K3 Fork)
 
 ### Fixed

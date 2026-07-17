@@ -7,7 +7,11 @@ module.exports = tseslint.config(
         languageOptions: {
             parser: tseslint.parser,
             parserOptions: {
-                project: './tsconfig.json',
+                // Use the project service so each file is linted against the
+                // tsconfig that actually includes it (tsconfig.json for the
+                // extension, tsconfig.unit.json for the plain-Node tests).
+                projectService: true,
+                tsconfigRootDir: __dirname,
                 sourceType: 'module',
             },
         },

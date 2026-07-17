@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "out-unit",
+    "rootDir": "src",
+    "types": ["node", "mocha"]
+  },
+  "include": [
+    "src/usageMath.ts",
+    "src/tokenize.ts",
+    "src/retry.ts",
+    "src/warnings.ts",
+    "src/test/pure.test.ts"
+  ],
+  "exclude": ["node_modules", ".vscode-test", "out", "out-unit"]
+}
