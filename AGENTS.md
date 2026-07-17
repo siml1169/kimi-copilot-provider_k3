@@ -1,6 +1,6 @@
 # AGENTS.md — Kimi Copilot Provider
 
-VS Code extension that registers **Kimi K2/K2.7 Code** models as custom `LanguageModelChatProvider` for GitHub Copilot Chat. Proxies chat requests to the Kimi API via SSE streaming.
+VS Code extension that registers **Kimi K2/K2.7 Code and K3** models as custom `LanguageModelChatProvider` for GitHub Copilot Chat. Proxies chat requests to the Kimi API via SSE streaming.
 
 ## Quick Reference
 
@@ -19,6 +19,7 @@ VS Code extension that registers **Kimi K2/K2.7 Code** models as custom `Languag
 | `kimi-k2.7-code-highspeed` | `kimi-k2.7-code-highspeed` | 256K / 32K | Faster output (~180 T/s) |
 | `kimi-k2.6` | `kimi-k2.6` | 256K / 32K | Multimodal + thinking |
 | `kimi-k2.5` | `kimi-k2.5` | 256K / 32K | Multimodal + thinking |
+| `kimi-k3` | `kimi-k3` | 1M / 32K | Frontier MoE, always-on reasoning, multimodal — set endpoint to `https://api.moonshot.ai/v1/chat/completions` |
 
 ## Architecture
 

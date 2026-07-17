@@ -86,7 +86,7 @@
         "kimiCopilot.model": {
           "type": "string",
           "default": "kimi-k2.7-code",
-          "description": "Default Kimi model ID used in chat. Use 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6', or 'kimi-k2.5'."
+          "description": "Default Kimi model ID used in chat. Use 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6', 'kimi-k2.5', or 'kimi-k3'."
         },
         "kimiCopilot.modelConfigs": {
           "type": [
