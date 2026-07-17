@@ -89,6 +89,23 @@ After every API call the status bar shows your **live account balance** (fetched
 ⚡ Kimi: $49.58
 ```
 
+### Balance vs. estimated cost
+
+The status bar has two display modes:
+
+| Display | Meaning |
+|---|---|
+| `⚡ Kimi: $49.58` | **Live balance** — fetched from `GET /v1/users/me/balance` after the last request. |
+| `⚡ Kimi: ~$0.0123` | **Estimated cost** (note the `~`) — today's accumulated cost, computed locally from the per-model pricing table. Shown when the balance fetch hasn't succeeded yet. |
+
+The display falls back to the estimate whenever the balance endpoint returns no value — for example:
+
+- the balance request failed (network error, non-2xx status, expired/invalid key),
+- no successful balance fetch has happened since startup (the balance is only fetched *after* a chat request, not on activation),
+- the response body didn't contain `data.available_balance`.
+
+When this happens a warning is written to the **Kimi3 Copilot** output channel (`Balance fetch failed (HTTP …) — status bar will show estimated cost instead`). Check that channel if the status bar shows `~` unexpectedly. The balance is fetched with the same effective key as the request (K3 key for K3 models, main key otherwise), so a K3-only key setup still reports balance.
+
 Hover for a tooltip with today's aggregated stats:
 
 | Metric | Source |
@@ -122,7 +139,8 @@ src/
 ├── config.ts      # ConfigurationManager: settings, SecretStorage keys (main + K3)
 ├── extension.ts   # activate(): provider, usage tracker, command registration
 ├── models.ts      # Model registry with per-model capabilities and defaults
-├── provider.ts    # KimiChatProvider: request building, retry, usage capture
+├── provider.ts    # KimiChatProvider: request building, retry, usage capture, balance fetch
+├── thinking.ts    # LanguageModelThinkingPart shim (reflection + text fallback)
 ├── types.ts       # Shared API types (KimiRequest, KimiMessage, KimiUsage, …)
 ├── usage.ts       # UsageTracker: cost calculation, status bar, daily aggregation
 └── test/          # Unit tests

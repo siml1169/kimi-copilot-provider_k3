@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConfigurationManager } from './config';
 import { MODELS, toChatInfo, getModelCapabilities, getMaxOutputTokens, getModelDefaults } from './models';
 import { UsageTracker, type UsageRecord, formatUsageSummary } from './usage';
+import { createThinkingPart } from './thinking';
 import type { KimiMessage, KimiTool, KimiToolCall, KimiRequest, KimiStreamChunk } from './types';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -305,25 +306,39 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         this.usageTracker?.record(record);
         this.outputChannel.info(`📊 ${formatUsageSummary(record)}`);
 
-        // Opportunistically refresh balance after each request
-        this.refreshBalance().catch(() => { /* best-effort */ });
+        // Opportunistically refresh balance after each request, using the same
+        // model's effective key so K3-keyed accounts get balance too.
+        this.refreshBalance(modelId).catch(() => { /* best-effort */ });
     }
 
     /** Fetch current balance from Kimi API and update the status bar. */
-    private async refreshBalance(): Promise<void> {
+    private async refreshBalance(modelId?: string): Promise<void> {
         const tracker = this.usageTracker;
         if (!tracker) return;
 
         try {
-            const apiKey = await this.configManager.getApiKey();
-            if (!apiKey) return;
+            // Use the same key the request succeeded with (K3 key for K3 models,
+            // main key otherwise) so a K3-only key setup still gets balance.
+            const apiKey = modelId
+                ? await this.configManager.getEffectiveApiKey(modelId)
+                : await this.configManager.getApiKey();
+            if (!apiKey) {
+                this.outputChannel.debug('Balance fetch skipped: no API key available');
+                return;
+            }
 
             const baseUrl = this.configManager.getBaseUrl();
             const response = await fetch(`${baseUrl}/v1/users/me/balance`, {
                 headers: { Authorization: `Bearer ${apiKey}` },
             });
 
-            if (!response.ok) return;
+            if (!response.ok) {
+                const body = await response.text().catch(() => '');
+                this.outputChannel.warn(
+                    `Balance fetch failed (HTTP ${response.status})${body ? `: ${body.slice(0, 200)}` : ''} — status bar will show estimated cost instead`,
+                );
+                return;
+            }
 
             const data = (await response.json()) as {
                 data?: { available_balance?: number };
@@ -331,9 +346,15 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             const balance = data?.data?.available_balance;
             if (balance !== undefined) {
                 tracker.setBalance(balance);
+            } else {
+                this.outputChannel.warn(
+                    'Balance fetch returned no available_balance field — status bar will show estimated cost instead',
+                );
             }
-        } catch {
-            // Silently fail — balance is nice-to-have
+        } catch (err) {
+            this.outputChannel.warn(
+                `Balance fetch error: ${err instanceof Error ? err.message : String(err)} — status bar will show estimated cost instead`,
+            );
         }
     }
 
@@ -634,7 +655,7 @@ async function completeResponse(
 
     // Show chain-of-thought (reasoning_content) before the final answer
     if (message.reasoning_content) {
-        progress.report(new vscode.LanguageModelTextPart(message.reasoning_content));
+        progress.report(createThinkingPart(message.reasoning_content));
     }
 
     if (message.content) {
@@ -754,9 +775,9 @@ async function streamSSEResponse(
                         progress.report(new vscode.LanguageModelTextPart(delta.content));
                     }
 
-                    // Chain-of-thought (reasoning_content) — stream it as text
+                    // Chain-of-thought (reasoning_content) — render as a Thinking part
                     if (delta.reasoning_content) {
-                        progress.report(new vscode.LanguageModelTextPart(delta.reasoning_content));
+                        progress.report(createThinkingPart(delta.reasoning_content));
                     }
 
                     // Tool calls (accumulate across chunks)

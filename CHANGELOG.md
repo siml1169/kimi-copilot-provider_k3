@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-07-17 (K3 Fork)
+
+### Fixed
+- **Chain-of-thought now renders as a collapsible "Thinking" section** — `reasoning_content` is reported via the proposed `vscode.LanguageModelThinkingPart` (resolved by reflection at runtime) instead of plain text parts, matching how VS Code's own BYOK providers emit reasoning. Previously the chain-of-thought was streamed as ordinary answer text and never produced the Thinking UI.
+- Thinking-part emission is guarded (`try/catch` + feature detection), so on older VS Code builds without the runtime constructor the extension degrades to inline text instead of failing the stream.
+- **Balance fetch now uses the effective API key** — `refreshBalance()` previously always used the main key, so setups that only configure a K3 key never got a live balance and the status bar silently fell back to estimated cost. It now uses the same key as the request (K3 key for K3 models).
+
+### Changed
+- **Balance-fetch failures are now logged** — `refreshBalance()` previously swallowed all errors, so the status bar could fall back to `~estimated cost` with no explanation. Failures (non-2xx status, missing `available_balance`, network errors) now write a warning to the **Kimi3 Copilot** output channel. Display behavior is unchanged: live balance when available, `~` estimate otherwise.
+- README documents the balance-vs-estimate display modes and when each appears.
+
+### Added
+- New `src/thinking.ts` shim that constructs a real `LanguageModelThinkingPart` when available and falls back to `LanguageModelTextPart` otherwise.
+
 ## [1.5.0] - 2026-07-17 (K3 Fork)
 
 ### Added
