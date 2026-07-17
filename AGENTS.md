@@ -77,6 +77,28 @@ Two non-blocking, per-session-de-duplicated warnings (settings under `kimi3Copil
 Both warn once per threshold-bucket via `showWarningOnce` in `provider.ts` and log to the output
 channel. Toggle with `warnOnContextFill` / `warnOnCacheMiss`.
 
+## Session Info / context-usage gauge integration (1.6.0)
+
+VS Code 1.109+ renders a context-usage gauge ("Session Info" popover,
+`workbench.action.chat.showContextUsage`). Provider-side integration surface:
+
+- **Denominator** — read from `LanguageModelChatInformation.maxInputTokens`/`maxOutputTokens`
+  (already reported). Resolution order: configured `contextSize` → `configurationSchema` default →
+  `maxInputTokens`.
+- **`configurationSchema`** (non-public field, like `isBYOK`) passes the extHost boundary
+  unconditionally. `toChatInfo()` in `models.ts` attaches a `contextSize` enum picker
+  (full window default + a quarter tier ≥ 64K). The user selection comes back via
+  `options.configuration` (in `provideLanguageModelChatInformation`) and
+  `options.modelConfiguration` (in `provideLanguageModelChatResponse`) — both are duck-typed
+  reads since stable `@types/vscode` lacks them.
+- On a picked tier, `toChatInfo` clamps reported `maxInputTokens` so Copilot's trimming, the
+  gauge, and the fill warning all agree. `doChatRequest` additionally `min()`s the warning
+  denominator with `modelConfiguration.contextSize` as a fallback.
+- **Numerator (used tokens) cannot be fed**: Copilot Chat's `extChatEndpoint.ts` hardcodes
+  `usage: {prompt_tokens: 0, …}` for third-party providers; `stream.usage()` belongs to the
+  `chatParticipantAdditions` proposal (chat-participant owners only). Our context-fill warning is
+  the only real-usage surfacing until VS Code adds a provider usage channel.
+
 ## Per-Model Configuration
 
 Use `kimi3Copilot.modelConfigs` to override settings per picker model. Example:

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-07-17 (K3 Fork)
+
+### Added
+- **Session Info / context-usage gauge integration** — each model now declares a `configurationSchema` with a native **Context Size** picker in the model picker (full window by default; K3 also offers 256K, 256K models offer 64K). The selection is honored everywhere: the Session Info gauge denominator, Copilot Chat's history trimming (via clamped `maxInputTokens`), and this extension's context-fill warning budget.
+- README documents what the native Session Info panel shows for BYOK providers (total window works; used-tokens numerator is hardcoded to zero upstream for all third-party providers) and how the Context Size picker interacts with trimming and warnings.
+
 ## [1.5.3] - 2026-07-17 (K3 Fork)
 
 ### Added

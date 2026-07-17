@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { convertMessages, convertTools, extractTextContent, buildKimiRequest } from '../provider';
 import { ConfigurationManager } from '../config';
+import { toChatInfo, MODELS } from '../models';
 import type { KimiTool, KimiMessage } from '../types';
 
 suite('provider helpers', () => {
@@ -248,6 +249,61 @@ suite('provider helpers', () => {
             const first = (request.messages as KimiMessage[])[0];
             assert.strictEqual(first.role, 'system');
             assert.strictEqual(first.content, 'custom sys');
+        });
+    });
+
+    suite('toChatInfo — Session Info / context-size integration', () => {
+        const k3 = MODELS.find((m) => m.id === 'kimi-k3')!;
+
+        test('exposes a Context Size configuration schema', () => {
+            const info = toChatInfo(k3, true) as unknown as {
+                configurationSchema?: { properties?: Record<string, { default?: unknown; enum?: unknown[] }> };
+            };
+            const prop = info.configurationSchema?.properties?.['contextSize'];
+            assert.ok(prop, 'contextSize schema property should exist');
+            assert.strictEqual(prop!.default, k3.maxInputTokens);
+            assert.ok(Array.isArray(prop!.enum));
+            assert.ok((prop!.enum as number[]).includes(k3.maxInputTokens));
+        });
+
+        test('full window is the default; K3 offers a 256K tier', () => {
+            const info = toChatInfo(k3, true) as unknown as {
+                configurationSchema?: { properties?: Record<string, { enum?: unknown[] }> };
+            };
+            const tiers = info.configurationSchema?.properties?.['contextSize']?.enum as number[];
+            assert.deepStrictEqual(tiers, [1048576, 262144]);
+        });
+
+        test('respects a user-picked smaller contextSize tier', () => {
+            const info = toChatInfo(k3, true, undefined, { contextSize: 262144 });
+            assert.strictEqual(info.maxInputTokens, 262144);
+        });
+
+        test('ignores invalid or oversized contextSize values', () => {
+            assert.strictEqual(
+                toChatInfo(k3, true, undefined, { contextSize: 999999999 }).maxInputTokens,
+                k3.maxInputTokens,
+            );
+            assert.strictEqual(
+                toChatInfo(k3, true, undefined, { contextSize: -5 }).maxInputTokens,
+                k3.maxInputTokens,
+            );
+            assert.strictEqual(
+                toChatInfo(k3, true, undefined, { contextSize: 'big' }).maxInputTokens,
+                k3.maxInputTokens,
+            );
+        });
+
+        test('modelConfigs maxInputTokens override stays authoritative for tiers', () => {
+            const info = toChatInfo(k3, true, { maxInputTokens: 131072 }) as unknown as {
+                maxInputTokens: number;
+                configurationSchema?: { properties?: Record<string, { default?: unknown; enum?: unknown[] }> };
+            };
+            assert.strictEqual(info.maxInputTokens, 131072);
+            const prop = info.configurationSchema?.properties?.['contextSize'];
+            assert.strictEqual(prop!.default, 131072);
+            // 131072/4 = 32768 < 65536 → no smaller tier offered
+            assert.deepStrictEqual(prop!.enum, [131072]);
         });
     });
 });

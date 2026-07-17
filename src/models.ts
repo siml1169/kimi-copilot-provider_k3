@@ -129,25 +129,99 @@ export const DEFAULT_SYSTEM_PROMPT =
 // Model Picker Information (non-public API surface)
 // ═══════════════════════════════════════════════════════════════════════
 //
-// The fields `isBYOK`, `isUserSelectable`, and `statusIcon` are NOT part
-// of the stable `vscode.LanguageModelChatInformation` typings. They are the
-// same shape currently consumed by GitHub Copilot Chat to render model
-// picker metadata. Without them, the model simply won't appear in the picker.
+// The fields `isBYOK`, `isUserSelectable`, `statusIcon`, and
+// `configurationSchema` are NOT part of the stable
+// `vscode.LanguageModelChatInformation` typings. They are the same shape
+// currently consumed by VS Code core / GitHub Copilot Chat to render model
+// picker metadata and per-model configuration. Without them, the model
+// simply won't appear in the picker.
 //
+
+/**
+ * JSON-schema-ish shape for per-model configuration (duck-typed).
+ * Mirrors `vscode.LanguageModelConfigurationSchema` from the proposed
+ * chatProvider API; passes through the extension-host boundary unchanged.
+ */
+export interface ConfigurationSchemaProperty {
+	type?: string;
+	title?: string;
+	description?: string;
+	default?: unknown;
+	enum?: unknown[];
+	enumItemLabels?: string[];
+	enumDescriptions?: string[];
+	group?: string;
+}
+
+export interface LanguageModelConfigurationSchema {
+	properties?: Record<string, ConfigurationSchemaProperty>;
+}
 
 interface ModelPickerChatInformation extends vscode.LanguageModelChatInformation {
 	readonly isUserSelectable: boolean;
 	readonly isBYOK: true;
 	readonly statusIcon?: vscode.ThemeIcon;
+	readonly configurationSchema?: LanguageModelConfigurationSchema;
+}
+
+/** Format a token count the way the native picker does (1048576 → "1M"). */
+function formatTierTokens(n: number): string {
+	if (n >= 1_048_576 && n % 1_048_576 === 0) return `${n / 1_048_576}M`;
+	if (n >= 1024 && n % 1024 === 0) return `${n / 1024}K`;
+	return n.toLocaleString('en-US');
+}
+
+/**
+ * Build the native "Context Size" picker schema for a model.
+ *
+ * Consumed by VS Code's Session Info / context-usage gauge (denominator
+ * resolution: configured contextSize → schema default → maxInputTokens) and
+ * rendered as a dropdown in the model picker. The default is the full
+ * window, so behavior is unchanged unless the user opts into a smaller tier.
+ */
+function buildContextSizeSchema(fullWindow: number): LanguageModelConfigurationSchema {
+	const tiers = [fullWindow];
+	const quarter = Math.floor(fullWindow / 4);
+	if (quarter >= 65536 && quarter !== fullWindow) {
+		tiers.push(quarter);
+	}
+	return {
+		properties: {
+			contextSize: {
+				type: 'number',
+				title: 'Context Size',
+				description: 'Context window budget for this model. Smaller tiers make Copilot trim history earlier and scale the Session Info gauge accordingly.',
+				enum: tiers,
+				enumItemLabels: tiers.map(formatTierTokens),
+				enumDescriptions: tiers.map((_, i) =>
+					i === 0
+						? 'Full context window (default)'
+						: 'Smaller budget — trims history earlier, lower cost',
+				),
+				default: fullWindow,
+				group: 'tokens',
+			},
+		},
+	};
 }
 
 export function toChatInfo(
 	m: ModelDefinition,
 	hasApiKey: boolean,
 	overrides?: Partial<ModelConfigOverride>,
+	configuration?: Record<string, unknown>,
 ): ModelPickerChatInformation {
-	const maxInputTokens = overrides?.maxInputTokens ?? m.maxInputTokens;
+	const fullInputTokens = overrides?.maxInputTokens ?? m.maxInputTokens;
 	const maxOutputTokens = overrides?.maxOutputTokens ?? m.maxOutputTokens;
+
+	// Honor a user-selected Context Size tier: clamp the reported input budget
+	// so Copilot's history trimming AND the Session Info gauge both follow it.
+	const picked = configuration?.['contextSize'];
+	const maxInputTokens =
+		typeof picked === 'number' && picked > 0 && picked < fullInputTokens
+			? Math.floor(picked)
+			: fullInputTokens;
+
 	return {
 		id: m.id,
 		name: m.name,
@@ -160,6 +234,7 @@ export function toChatInfo(
 		maxOutputTokens,
 		isBYOK: true,
 		isUserSelectable: true,
+		configurationSchema: buildContextSizeSchema(fullInputTokens),
 		capabilities: {
 			toolCalling: m.capabilities.toolCalling,
 			imageInput: m.capabilities.imageInput,

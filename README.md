@@ -107,6 +107,20 @@ Kimi's prefix cache makes repeated system/tool context cheap (for K3, cached inp
 
 Tune or disable via `kimi3Copilot.cacheMissWarnThreshold` / `kimi3Copilot.warnOnCacheMiss`.
 
+## Session Info (native context-usage gauge)
+
+VS Code 1.109+ shows a **context window usage** indicator in the chat input (click it, or run **Show Context Window Usage**, for the *Session Info* popover). Kimi models integrate with it:
+
+| What | Status |
+|---|---|
+| **Total window** (denominator, e.g. `… / 1M tokens`) | ✅ Works — read from each model's `maxInputTokens` + `maxOutputTokens` |
+| **Context Size picker** (model-picker dropdown) | ✅ Works — pick a smaller tier (e.g. K3: `1M` → `256K`); the gauge, Copilot's history trimming, and this extension's fill warning all honor it |
+| **Used tokens** (numerator + breakdown) | ⚠️ Always `0` — Copilot Chat hardcodes zero usage for all third-party BYOK providers ([upstream gap](https://github.com/microsoft/vscode-copilot-chat)); no provider API exists to feed it yet |
+
+The **Context Size** picker defaults to the full window, so nothing changes unless you opt into a smaller budget. Picking a smaller tier makes Copilot trim history earlier, rescales the Session Info gauge, and makes the context-fill warning measure against that budget.
+
+Because the native numerator stays at zero for BYOK models, this extension's **context-fill warning** (above) is currently the only place real `usage.prompt_tokens` is surfaced for Kimi models.
+
 ## Cost & Usage Tracking
 
 After every API call the status bar shows your **live account balance** (fetched from `GET /v1/users/me/balance`):

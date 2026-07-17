@@ -74,13 +74,18 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     // ── Model information ──────────────────────────────────────────
 
     async provideLanguageModelChatInformation(
-        _options: vscode.PrepareLanguageModelChatModelOptions,
+        options: vscode.PrepareLanguageModelChatModelOptions,
         _token: vscode.CancellationToken,
     ): Promise<vscode.LanguageModelChatInformation[]> {
         // Always return models — the `silent` flag means "don't prompt for credentials",
         // not "don't report models". The official sample ignores it entirely.
         const hasApiKey = !!(await this.configManager.getApiKey());
-        return MODELS.map((model) => toChatInfo(model, hasApiKey, this.configManager.getModelConfig(model.id)));
+        // Per-model configuration (e.g. the Context Size tier picked in the model
+        // picker). Not in the stable typings — read defensively.
+        const configuration = (options as { configuration?: Record<string, unknown> }).configuration;
+        return MODELS.map((model) =>
+            toChatInfo(model, hasApiKey, this.configManager.getModelConfig(model.id), configuration),
+        );
     }
 
     // ── Chat response ──────────────────────────────────────────────
@@ -187,12 +192,23 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
                 throw this.toLanguageModelError(response.status, errText, endpoint, retryAfter);
             }
 
+            // Effective context budget for the fill warning: honor a user-selected
+            // Context Size tier from the model picker (defensive read — the field is
+            // not in the stable typings yet).
+            const modelConfiguration = (options as { modelConfiguration?: Record<string, unknown> })
+                .modelConfiguration;
+            const pickedContextSize = modelConfiguration?.['contextSize'];
+            const contextBudget =
+                typeof pickedContextSize === 'number' && pickedContextSize > 0
+                    ? Math.min(modelInfo.maxInputTokens, Math.floor(pickedContextSize))
+                    : modelInfo.maxInputTokens;
+
             if (enableStreaming) {
                 const usage = await streamSSEResponse(response, progress, token, this.outputChannel);
-                this.recordUsage(usage, request.model, modelInfo.maxInputTokens);
+                this.recordUsage(usage, request.model, contextBudget);
             } else {
                 const usage = await completeResponse(response, progress, this.outputChannel);
-                this.recordUsage(usage, request.model, modelInfo.maxInputTokens);
+                this.recordUsage(usage, request.model, contextBudget);
             }
 
             this.outputChannel.info(`← completed in ${Date.now() - startTime}ms`);
