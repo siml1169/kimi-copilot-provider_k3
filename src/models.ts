@@ -82,6 +82,25 @@ export const MODELS: ModelDefinition[] = [
 			thinking: { type: 'enabled' },
 		},
 	},
+	{
+		id: 'kimi-k3',
+		name: 'Kimi K3',
+		family: 'kimi',
+		version: 'kimi-k3',
+		detail: 'Frontier MoE model (1M context, always-on reasoning, multimodal) — requires endpoint: https://api.moonshot.ai/v1/chat/completions',
+		maxInputTokens: 1048576,
+		maxOutputTokens: 32768,
+		capabilities: {
+			toolCalling: true,
+			imageInput: true,
+			thinking: true,
+		},
+		defaults: {
+			temperature: 1.0,
+			topP: 1.0,
+			thinking: { type: 'enabled' },
+		},
+	},
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
