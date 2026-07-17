@@ -6,6 +6,7 @@ import { createThinkingPart, isThinkingPartLike, getThinkingPartValue } from './
 import { jitteredBackoff, isRetryableNetworkError, isRetryableStatus, sleep } from './retry';
 import { estimateTokens } from './tokenize';
 import { contextFillWarning, cacheMissWarning, type ThresholdWarning } from './warnings';
+import { classifyRequestKind, isReportableContextRequest } from './requestKind';
 import type { KimiMessage, KimiTool, KimiToolCall, KimiRequest, KimiStreamChunk, KimiContentPart, ModelConfigOverride } from './types';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -206,9 +207,15 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             if (enableStreaming) {
                 const usage = await streamSSEResponse(response, progress, token, this.outputChannel);
                 this.recordUsage(usage, request.model, contextBudget);
+                if (usage && usage.prompt_tokens > 0 && !extras?.testMode) {
+                    tryReportNativeUsage(progress, messages, options, usage, this.outputChannel);
+                }
             } else {
                 const usage = await completeResponse(response, progress, this.outputChannel);
                 this.recordUsage(usage, request.model, contextBudget);
+                if (usage && usage.prompt_tokens > 0 && !extras?.testMode) {
+                    tryReportNativeUsage(progress, messages, options, usage, this.outputChannel);
+                }
             }
 
             this.outputChannel.info(`← completed in ${Date.now() - startTime}ms`);
@@ -809,6 +816,85 @@ async function completeResponse(
         }
     }
     return data.usage;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Native context-window gauge reporting
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Report token usage to GitHub Copilot Chat's NATIVE context-window
+ * indicator via a `usage` data part. Only reports for real conversation
+ * turns; auxiliary requests (chat-title, todo-tracker, etc.) are skipped.
+ *
+ * Mechanism mirrors the upstream DeepSeek V4 provider (v0.3.7).
+ */
+function tryReportNativeUsage(
+	progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+	options: vscode.ProvideLanguageModelChatResponseOptions,
+	usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number },
+	outputChannel: vscode.LogOutputChannel,
+): void {
+	try {
+		const firstText = extractFirstMessageText(messages);
+		const latestUserText = extractLatestUserText(messages);
+		const toolNames = (options.tools ?? []).map((t) => t.name);
+		const kind = classifyRequestKind(firstText, latestUserText, toolNames);
+		const reportable = isReportableContextRequest(kind);
+
+		outputChannel.debug(
+			`[ctxusage] kind=${kind} prompt=${usage.prompt_tokens} reported=${reportable}`,
+		);
+
+		if (reportable) {
+			progress.report(
+				vscode.LanguageModelDataPart.json(
+					{
+						prompt_tokens: usage.prompt_tokens,
+						completion_tokens: usage.completion_tokens,
+						total_tokens: usage.total_tokens,
+						prompt_tokens_details:
+							usage.cached_tokens !== undefined
+								? { cached_tokens: usage.cached_tokens }
+								: undefined,
+					},
+					'usage',
+				),
+			);
+		}
+	} catch (e) {
+		// Best-effort; don't break the chat flow for reporting failures.
+		outputChannel.debug(
+			`[ctxusage] report failed: ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
+}
+
+/** Extract the concatenated text from the first message (typically the system prompt). */
+function extractFirstMessageText(messages: readonly vscode.LanguageModelChatRequestMessage[]): string {
+	if (messages.length === 0) return '';
+	return messageText(messages[0]);
+}
+
+/** Extract the concatenated text from the last User-role message. */
+function extractLatestUserText(messages: readonly vscode.LanguageModelChatRequestMessage[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === vscode.LanguageModelChatMessageRole.User) {
+			return messageText(messages[i]);
+		}
+	}
+	return '';
+}
+
+function messageText(m: vscode.LanguageModelChatRequestMessage): string {
+	let text = '';
+	for (const part of m.content) {
+		if (part instanceof vscode.LanguageModelTextPart) {
+			text += part.value;
+		}
+	}
+	return text;
 }
 
 // ═══════════════════════════════════════════════════════════════════════

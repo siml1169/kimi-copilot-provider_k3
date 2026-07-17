@@ -10,6 +10,7 @@
     "src/tokenize.ts",
     "src/retry.ts",
     "src/warnings.ts",
+    "src/requestKind.ts",
     "src/test/pure.test.ts"
   ],
   "exclude": ["node_modules", ".vscode-test", "out", "out-unit"]

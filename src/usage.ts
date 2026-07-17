@@ -90,16 +90,23 @@ export class UsageTracker {
 		const balanceStr = this.balance !== undefined
 			? `$${this.balance.toFixed(2)}`
 			: `~${formatCost(d.totalCost)}`;
-		this.statusBarItem.text = `$(zap) Kimi: ${balanceStr}`;
+		this.statusBarItem.text = `K₃ ${balanceStr}`;
 		this.statusBarItem.tooltip = new vscode.MarkdownString(
 			[
-				`**Kimi Usage Today** (${d.date})`,
+				`**Kimi Copilot**`,
 				``,
-				`Balance: ${this.balance !== undefined ? `$${this.balance.toFixed(4)}` : 'unknown'}`,
-				`Requests: ${d.totalRequests}`,
+				`Balance: ${this.balance !== undefined ? `$${this.balance.toFixed(4)}` : 'unknown (showing estimated cost)'}`,
+				`Requests (today): ${d.totalRequests}`,
+				``,
+				`---`,
+				``,
 				`Tokens: ${formatTokens(d.totalPromptTokens)} in → ${formatTokens(d.totalCompletionTokens)} out`,
-				`Cost: ${formatCost(d.totalCost)}`,
-				`Cache hits: ${d.cacheHitRate.toFixed(1)}%`,
+				`Cost (today): ${formatCost(d.totalCost)}`,
+				`Cache hit rate: ${d.cacheHitRate.toFixed(1)}%`,
+				``,
+				`---`,
+				``,
+				`Updated: ${new Date(d.lastUpdated).toLocaleTimeString()}`,
 			].join('\n\n'),
 		);
 	}

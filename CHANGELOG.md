@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-07-17 (K3 Fork)
+
+### Added
+- **Native Session Info gauge now shows real token usage** — the extension emits a `LanguageModelDataPart` with mime `"usage"` after each response, which Copilot Chat reads to populate the context-window gauge (used tokens, percentage bar, breakdown). Previously the numerator was always zero for BYOK providers; this matches the mechanism used by the DeepSeek V4 provider.
+- **Request classifier** (`src/requestKind.ts`) — distinguishes real conversation turns from auxiliary Copilot Chat requests (chat-title, todo-tracker, git-commit, etc.) so that tiny aux requests don't clobber the native gauge with near-zero values.
+
+### Changed
+- **Status bar format** — now `K₃ $X.XX` (matching the `V₄$X.XX` style popularized by DeepSeek V4). Tooltip enhanced with sections for balance, daily stats, tokens, cost, and cache hit rate.
+
 ## [1.5.4] - 2026-07-17 (K3 Fork)
 
 ### Added
