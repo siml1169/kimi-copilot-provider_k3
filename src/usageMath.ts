@@ -67,8 +67,12 @@ export const DEFAULT_PRICING: PricingConfig = {
 
 // ── Cost Calculation ─────────────────────────────────────────────────
 
-/** Calculate the estimated cost for a single request. */
-export function estimateCost(
+/**
+ * Calculate the exact cost for a request from API-reported token counts
+ * and published per-model pricing. No estimation — tokens come from the
+ * API response's `usage` block.
+ */
+export function calculateCost(
 	promptTokens: number,
 	completionTokens: number,
 	cachedTokens: number,
@@ -107,7 +111,7 @@ export function formatCost(usd: number): string {
 }
 
 export function formatUsageSummary(record: UsageRecord): string {
-	const cost = estimateCost(
+	const cost = calculateCost(
 		record.promptTokens,
 		record.completionTokens,
 		record.cachedTokens ?? 0,

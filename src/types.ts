@@ -66,7 +66,7 @@ export interface KimiRequest {
 	presence_penalty?: number;
 	frequency_penalty?: number;
 	thinking?: { type: 'enabled' | 'disabled'; keep?: 'all' };
-	reasoning_effort?: 'max';
+	reasoning_effort?: 'low' | 'high' | 'max';
 	tools?: KimiTool[];
 	tool_choice?: 'none' | 'auto' | 'required' | { type: 'function'; function: { name: string } };
 	response_format?: { type: 'json_object' | 'text' | 'json_schema'; json_schema?: Record<string, unknown> };
@@ -120,8 +120,8 @@ export interface ModelDefaults {
 	topP?: number;
 	/** Thinking mode default (K2.7 requires enabled + keep all). */
 	thinking?: { type: 'enabled' | 'disabled'; keep?: 'all' };
-	/** K3-only: reasoning effort level. */
-	reasoning_effort?: 'max';
+	/** K3 reasoning effort level (low / high / max). */
+	reasoning_effort?: 'low' | 'high' | 'max';
 }
 
 export interface ModelConfigOverride {
@@ -141,6 +141,8 @@ export interface ModelConfigOverride {
 	frequencyPenalty?: number;
 	/** Thinking mode override. */
 	thinking?: { type: 'enabled' | 'disabled' };
+	/** Reasoning effort override (K3: low/high/max). */
+	reasoningEffort?: 'low' | 'high' | 'max';
 	/** Per-model system prompt. */
 	systemPrompt?: string;
 	/** Whether tool calling is enabled for this model. */

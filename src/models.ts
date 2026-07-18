@@ -171,40 +171,6 @@ function formatTierTokens(n: number): string {
 	return n.toLocaleString('en-US');
 }
 
-/**
- * Build the native "Context Size" picker schema for a model.
- *
- * Consumed by VS Code's Session Info / context-usage gauge (denominator
- * resolution: configured contextSize → schema default → maxInputTokens) and
- * rendered as a dropdown in the model picker. The default is the full
- * window, so behavior is unchanged unless the user opts into a smaller tier.
- */
-function buildContextSizeSchema(fullWindow: number): LanguageModelConfigurationSchema {
-	const tiers = [fullWindow];
-	const quarter = Math.floor(fullWindow / 4);
-	if (quarter >= 65536 && quarter !== fullWindow) {
-		tiers.push(quarter);
-	}
-	return {
-		properties: {
-			contextSize: {
-				type: 'number',
-				title: 'Context Size',
-				description: 'Context window budget for this model. Smaller tiers make Copilot trim history earlier and scale the Session Info gauge accordingly.',
-				enum: tiers,
-				enumItemLabels: tiers.map(formatTierTokens),
-				enumDescriptions: tiers.map((_, i) =>
-					i === 0
-						? 'Full context window (default)'
-						: 'Smaller budget — trims history earlier, lower cost',
-				),
-				default: fullWindow,
-				group: 'tokens',
-			},
-		},
-	};
-}
-
 export function toChatInfo(
 	m: ModelDefinition,
 	hasApiKey: boolean,
@@ -234,12 +200,67 @@ export function toChatInfo(
 		maxOutputTokens,
 		isBYOK: true,
 		isUserSelectable: true,
-		configurationSchema: buildContextSizeSchema(fullInputTokens),
+		configurationSchema: buildConfigurationSchema(m, fullInputTokens),
 		capabilities: {
 			toolCalling: m.capabilities.toolCalling,
 			imageInput: m.capabilities.imageInput,
 		},
 	};
+}
+
+/**
+ * Build the full per-model configuration schema (context size + thinking
+ * effort picker for reasoning-capable models).
+ */
+function buildConfigurationSchema(
+	m: ModelDefinition,
+	fullInputTokens: number,
+): LanguageModelConfigurationSchema {
+	const props: Record<string, ConfigurationSchemaProperty> = {};
+
+	// Context Size tier dropdown.
+	const tiers = [fullInputTokens];
+	const quarter = Math.floor(fullInputTokens / 4);
+	if (quarter >= 65536 && quarter !== fullInputTokens) {
+		tiers.push(quarter);
+	}
+	props.contextSize = {
+		type: 'number',
+		title: 'Context Size',
+		description: 'Context window budget for this model.',
+		enum: tiers,
+		enumItemLabels: tiers.map(formatTierTokens),
+		enumDescriptions: tiers.map((_, i) =>
+			i === 0
+				? 'Full context window (default)'
+				: 'Smaller budget — trims history earlier, lower cost',
+		),
+		default: fullInputTokens,
+		group: 'tokens',
+	};
+
+	// Thinking Effort picker — only for reasoning-capable models (K3, K2.6, etc.).
+	if (m.defaults?.reasoning_effort) {
+		const levels = ['low', 'high', 'max'] as const;
+		const labels: Record<string, string> = { low: 'Low', high: 'High', max: 'Max' };
+		const descriptions: Record<string, string> = {
+			low: 'Faster responses with less reasoning',
+			high: 'Greater reasoning depth but slower',
+			max: 'Maximum reasoning — best for complex tasks (default)',
+		};
+		props.reasoningEffort = {
+			type: 'string',
+			title: 'Thinking Effort',
+			description: 'Controls how deeply the model reasons before responding.',
+			enum: [...levels],
+			enumItemLabels: levels.map((l) => labels[l] ?? l),
+			enumDescriptions: levels.map((l) => descriptions[l] ?? l),
+			default: 'max',
+			group: 'navigation',
+		};
+	}
+
+	return { properties: props };
 }
 
 export function getModelCapabilities(modelId: string): ModelCapabilities | undefined {

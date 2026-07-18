@@ -1,6 +1,6 @@
              import * as vscode from 'vscode';
 import {
-	estimateCost,
+	calculateCost,
 	cacheHitRate,
 	formatTokens,
 	formatCost,
@@ -16,7 +16,7 @@ import {
 // ═══════════════════════════════════════════════════════════════════════
 
 export {
-	estimateCost,
+	calculateCost,
 	cacheHitRate,
 	formatTokens,
 	formatCost,
@@ -47,6 +47,9 @@ export class UsageTracker {
 	private daily: DailyUsage;
 	private statusBarItem: vscode.StatusBarItem | undefined;
 	private balance: number | undefined;
+	private balanceFetchedAt: number | undefined;
+	private outputChannel: vscode.OutputChannel | undefined;
+	private contextStats: { tokens: number; limit: number; ratio: number; status: string } | undefined;
 
 	constructor(private readonly state: vscode.Memento) {
 		const today = new Date().toISOString().slice(0, 10);
@@ -79,9 +82,24 @@ export class UsageTracker {
 			vscode.StatusBarAlignment.Right,
 			100,
 		);
-		this.statusBarItem.command = 'kimi3-copilot.showUsageStats';
+		// Click → open output channel (matches DeepSeek V4 behaviour).
+		this.statusBarItem.command = 'kimi3-copilot.showLog';
 		this.updateStatusBar();
 		this.statusBarItem.show();
+	}
+
+	/** Set the output channel so "show log" can reveal it. */
+	setOutputChannel(channel: vscode.OutputChannel): void {
+		this.outputChannel = channel;
+	}
+
+	/** 24-hour HH:MM:SS, padded. */
+	private formatTime24(ts: number): string {
+		const d = new Date(ts);
+		const hh = d.getHours().toString().padStart(2, '0');
+		const mm = d.getMinutes().toString().padStart(2, '0');
+		const ss = d.getSeconds().toString().padStart(2, '0');
+		return `${hh}:${mm}:${ss}`;
 	}
 
 	private updateStatusBar(): void {
@@ -90,30 +108,88 @@ export class UsageTracker {
 		const balanceStr = this.balance !== undefined
 			? `$${this.balance.toFixed(2)}`
 			: `~${formatCost(d.totalCost)}`;
-		this.statusBarItem.text = `K₃ ${balanceStr}`;
-		this.statusBarItem.tooltip = new vscode.MarkdownString(
-			[
-				`**Kimi Copilot**`,
-				``,
-				`Balance: ${this.balance !== undefined ? `$${this.balance.toFixed(4)}` : 'unknown (showing estimated cost)'}`,
-				`Requests (today): ${d.totalRequests}`,
-				``,
-				`---`,
-				``,
-				`Tokens: ${formatTokens(d.totalPromptTokens)} in → ${formatTokens(d.totalCompletionTokens)} out`,
-				`Cost (today): ${formatCost(d.totalCost)}`,
-				`Cache hit rate: ${d.cacheHitRate.toFixed(1)}%`,
-				``,
-				`---`,
-				``,
-				`Updated: ${new Date(d.lastUpdated).toLocaleTimeString()}`,
-			].join('\n\n'),
+
+		// Show context percentage when available (matches upstream pattern).
+		const ctxStr = this.contextStats
+			? ` · ${Math.round(this.contextStats.ratio * 100)}% ctx`
+			: '';
+
+		this.statusBarItem.text = `K₃ ${balanceStr}${ctxStr}`;
+
+		const md = new vscode.MarkdownString();
+		// Narrow `isTrusted` to exactly the commands this tooltip renders.
+		// Using `true` (full trust) would allow ANY command:URI to execute —
+		// defense-in-depth (matches DeepSeek V4 pattern).
+		md.isTrusted = {
+			enabledCommands: [
+				'kimi3-copilot.refreshBalance',
+				'kimi3-copilot.showLog',
+				'kimi3-copilot.showUsageStats',
+			],
+		};
+		md.supportThemeIcons = true;
+
+		md.appendMarkdown('### Kimi Copilot\n\n');
+
+		// Context row — when available.
+		if (this.contextStats) {
+			const pct = Math.round(this.contextStats.ratio * 100);
+			const icon = this.contextStats.status === 'critical' || this.contextStats.status === 'exceeded'
+				? '$(error)' : this.contextStats.status === 'warning' ? '$(warning)' : '$(info)';
+			md.appendMarkdown(
+				`${icon} **Context** &nbsp; ~${this.contextStats.tokens.toLocaleString('en-US')} / ${this.contextStats.limit.toLocaleString('en-US')} (${pct}%)\n\n`,
+			);
+		}
+
+		// Balance row — refresh link inline (matches DeepSeek V4 pattern).
+		md.appendMarkdown(
+			this.balance !== undefined
+				? '**Balance** &nbsp; [$(refresh) refresh](command:kimi3-copilot.refreshBalance)\n\n'
+				: '**Balance** &nbsp; [$(refresh) click to fetch](command:kimi3-copilot.refreshBalance)\n\n',
 		);
+
+		if (this.balance !== undefined) {
+			const time = this.balanceFetchedAt
+				? this.formatTime24(this.balanceFetchedAt)
+				: '--:--:--';
+			md.appendMarkdown(`$${this.balance.toFixed(4)} &nbsp;·&nbsp; ${time}\n\n`);
+		} else {
+			md.appendMarkdown(`_showing calculated cost from API tokens_\n\n`);
+		}
+
+		md.appendMarkdown(
+			[
+				`---`,
+				``,
+				`**Today** &nbsp;·&nbsp; ${d.totalRequests} request${d.totalRequests === 1 ? '' : 's'}`,
+				``,
+				`| | |`,
+				`|---|---|`,
+				`| Input | ${formatTokens(d.totalPromptTokens)} |`,
+				`| Output | ${formatTokens(d.totalCompletionTokens)} |`,
+				`| Cached | ${formatTokens(d.totalCachedTokens)} |`,
+				`| Cache hits | ${d.cacheHitRate.toFixed(1)}% |`,
+				`| **Cost** | **${formatCost(d.totalCost)}** |`,
+				``,
+				`---`,
+				``,
+				`[$(output) Show Log](command:kimi3-copilot.showLog) &nbsp;·&nbsp; [$(list-tree) Usage Stats](command:kimi3-copilot.showUsageStats)`,
+			].join('\n'),
+		);
+
+		this.statusBarItem.tooltip = md;
 	}
 
 	/** Set the current API balance (called after each successful request). */
 	setBalance(availableBalance: number): void {
 		this.balance = availableBalance;
+		this.balanceFetchedAt = Date.now();
+		this.updateStatusBar();
+	}
+
+	/** Set the latest context estimate (shown in status bar). */
+	setContextStats(estimate: { tokens: number; limit: number; ratio: number; status: string }): void {
+		this.contextStats = estimate;
 		this.updateStatusBar();
 	}
 
@@ -124,7 +200,7 @@ export class UsageTracker {
 			this.daily = this.freshDaily(today);
 		}
 
-		const cost = estimateCost(
+		const cost = calculateCost(
 			usage.promptTokens,
 			usage.completionTokens,
 			usage.cachedTokens ?? 0,

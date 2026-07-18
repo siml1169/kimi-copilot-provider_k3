@@ -82,6 +82,7 @@ When a K3 key is set it takes priority for K3 requests and falls back to the mai
 | `kimi3Copilot.modelIdOverrides` | `{}` | Remap picker model IDs to custom API model IDs |
 | `kimi3Copilot.warnOnContextFill` | `true` | Warn when the conversation fills much of the context window |
 | `kimi3Copilot.contextWarnThreshold` | `0.8` | Context-fill fraction (0–1) that triggers a fill warning |
+| `kimi3Copilot.contextErrorThreshold` | `0.95` | Context-fill fraction (0–1) at which requests are refused to prevent API errors |
 | `kimi3Copilot.warnOnCacheMiss` | `true` | Warn when the prefix-cache miss rate is high |
 | `kimi3Copilot.cacheMissWarnThreshold` | `0.8` | Cache-miss fraction (0–1) that triggers a warning |
 
@@ -98,6 +99,19 @@ Models degrade in very long contexts (lost-in-the-middle, higher latency/cost) w
 > `Kimi: Context is 82% full for kimi-k3 (858,993 / 1,048,576 tokens). Models degrade in long contexts — consider starting a fresh chat.`
 
 Tune or disable via `kimi3Copilot.contextWarnThreshold` / `kimi3Copilot.warnOnContextFill`.
+
+### Pre-send context guard
+
+Before any request is sent, the extension estimates the full token size of the outgoing request (messages, tool calls, and tool results, using the CJK-aware heuristic) and compares it against the model's input budget:
+
+- **~80% (warning threshold)** — logged to the output channel and shown in the status bar tooltip.
+- **95% (error threshold)** — the request is **refused** with a clear error instead of failing at the API:
+
+  > `Kimi context critical: ~990,000 / 1,048,576 tokens (94%). The context is almost full. Consider starting a new chat session or running "/compact" soon.`
+
+- **100%+ (exceeded)** — refused with guidance to start a new chat, run `/compact`, or remove files from the context.
+
+The estimate is also surfaced live in the status bar (`K₃ $49.58 · 45% ctx`). The error threshold is tunable via `kimi3Copilot.contextErrorThreshold`; the warn threshold via `kimi3Copilot.contextWarnThreshold`. Test Connection is exempt from the guard.
 
 ### High cache-miss rate
 
@@ -121,10 +135,10 @@ The **Context Size** picker defaults to the full window, so nothing changes unle
 
 ## Cost & Usage Tracking
 
-After every API call the status bar shows your **live account balance** (fetched from `GET /v1/users/me/balance`):
+After every API call the status bar shows your **live account balance** (fetched from `GET /v1/users/me/balance`), plus the latest pre-send **context estimate** as a percentage of the model's input budget:
 
 ```
-K₃ $49.58
+K₃ $49.58 · 45% ctx
 ```
 
 ### Balance vs. estimated cost
@@ -174,15 +188,20 @@ Stats reset at midnight and persist across VS Code restarts via `workspaceState`
 
 ```
 src/
-├── config.ts      # ConfigurationManager: settings, SecretStorage keys (main + K3)
-├── extension.ts   # activate(): provider, usage tracker, command registration
-├── models.ts      # Model registry with per-model capabilities and defaults
-├── provider.ts    # KimiChatProvider: request building, retry, usage capture, balance fetch
-├── requestKind.ts # Request classifier (skips aux requests for native gauge reporting)
-├── thinking.ts    # LanguageModelThinkingPart shim (reflection + text fallback)
-├── types.ts       # Shared API types (KimiRequest, KimiMessage, KimiUsage, …)
-├── usage.ts       # UsageTracker: cost calculation, status bar, daily aggregation
-└── test/          # Unit tests
+├── config.ts          # ConfigurationManager: settings, SecretStorage keys (main + K3)
+├── context-tracker.ts # SessionContextTracker: pre-send context estimate + overflow guard
+├── extension.ts       # activate(): provider, usage tracker, command registration
+├── models.ts          # Model registry with per-model capabilities and defaults
+├── provider.ts        # KimiChatProvider: request building, retry, usage capture, balance fetch
+├── requestKind.ts     # Request classifier (skips aux requests for native gauge reporting)
+├── retry.ts           # Pure retry/backoff helpers (jitter + deadline budget)
+├── thinking.ts        # LanguageModelThinkingPart shim (reflection + text fallback)
+├── tokenize.ts        # Pure CJK-aware token estimator
+├── types.ts           # Shared API types (KimiRequest, KimiMessage, KimiUsage, …)
+├── usage.ts           # UsageTracker: cost calculation, status bar, daily aggregation
+├── usageMath.ts       # Pure pricing/cost/format math
+├── warnings.ts        # Pure context-fill + cache-miss threshold logic
+└── test/              # Unit tests
 ```
 
 Provider implements the 3 mandatory methods of `LanguageModelChatProvider`:

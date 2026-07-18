@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2026-07-19 (K3 Fork)
+
+### Added
+- **Pre-send context guard** (`src/context-tracker.ts`) — `SessionContextTracker` estimates the full request's token size (messages, tool calls, tool results; CJK-aware) *before* it is sent and refuses the request with a clear error when the conversation is about to overflow the context window: `critical` at 95% fill (configurable), `exceeded` at 100%. The error tells you to start a fresh chat or run `/compact`. Test Connection is exempt.
+- **New setting `kimi3Copilot.contextErrorThreshold`** (default `0.95`) — fraction of the context window at which requests are refused to prevent API errors.
+- **Context usage in the status bar** — the latest pre-send estimate is shown as `· NN% ctx` next to the balance/cost, and the hover tooltip gains a Context line with an icon reflecting `ok` / `warning` / `critical` / `exceeded` status.
+
 ## [1.5.5] - 2026-07-17 (K3 Fork)
 
 ### Added

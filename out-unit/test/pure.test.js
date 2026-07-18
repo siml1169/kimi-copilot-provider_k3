@@ -49,22 +49,22 @@ const usageMath_1 = require("../usageMath");
 const tokenize_1 = require("../tokenize");
 const retry_1 = require("../retry");
 const warnings_1 = require("../warnings");
-(0, mocha_1.suite)('usageMath.estimateCost', () => {
+(0, mocha_1.suite)('usageMath.calculateCost', () => {
     (0, mocha_1.test)('zero tokens cost zero', () => {
-        assert.equal((0, usageMath_1.estimateCost)(0, 0, 0, 'kimi-k3'), 0);
+        assert.equal((0, usageMath_1.calculateCost)(0, 0, 0, 'kimi-k3'), 0);
     });
     (0, mocha_1.test)('K3 uncached input + output', () => {
         // 1M uncached input @ $3 + 1M output @ $15 = $18
-        const cost = (0, usageMath_1.estimateCost)(1_000_000, 1_000_000, 0, 'kimi-k3');
+        const cost = (0, usageMath_1.calculateCost)(1_000_000, 1_000_000, 0, 'kimi-k3');
         assert.ok(Math.abs(cost - 18) < 1e-9, `expected ~18, got ${cost}`);
     });
     (0, mocha_1.test)('K3 cached tokens are charged at cached rate', () => {
         // 1M cached input @ $0.30 = $0.30, no output
-        const cost = (0, usageMath_1.estimateCost)(1_000_000, 0, 1_000_000, 'kimi-k3');
+        const cost = (0, usageMath_1.calculateCost)(1_000_000, 0, 1_000_000, 'kimi-k3');
         assert.ok(Math.abs(cost - 0.3) < 1e-9, `expected ~0.3, got ${cost}`);
     });
     (0, mocha_1.test)('unknown model falls back to default pricing', () => {
-        const cost = (0, usageMath_1.estimateCost)(1_000_000, 0, 0, 'no-such-model');
+        const cost = (0, usageMath_1.calculateCost)(1_000_000, 0, 0, 'no-such-model');
         assert.ok(Math.abs(cost - usageMath_1.DEFAULT_PRICING.inputPricePer1M) < 1e-9);
     });
     (0, mocha_1.test)('K2.7 pricing present', () => {

@@ -113,7 +113,7 @@ export class ConfigurationManager {
 	}
 
 	getModel(): string {
-		return this.config.get<string>('model', 'kimi-k2.7-code');
+		return this.config.get<string>('model', 'kimi-k3');
 	}
 
 	/** Effective temperature for a picker model: model config > global default. */
@@ -194,6 +194,12 @@ export class ConfigurationManager {
 	/** Whether to show context-window-fill warnings. Default true. */
 	getWarnOnContextFill(): boolean {
 		return this.config.get<boolean>('warnOnContextFill', true);
+	}
+
+	/** Context-fill fraction (0–1) at which to block requests. Default 0.95 (95%). */
+	getContextErrorThreshold(): number {
+		const value = this.config.get<number>('contextErrorThreshold', 0.95);
+		return Math.max(0, Math.min(1, value));
 	}
 
 	/** Cache-miss fraction (0–1) at which to warn. Default 0.8 (80%). */

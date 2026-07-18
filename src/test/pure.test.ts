@@ -11,30 +11,30 @@
 import * as assert from 'node:assert/strict';
 import { suite, test } from 'mocha';
 
-import { estimateCost, cacheHitRate, formatTokens, formatCost, PRICING, DEFAULT_PRICING } from '../usageMath';
+import { calculateCost, cacheHitRate, formatTokens, formatCost, PRICING, DEFAULT_PRICING } from '../usageMath';
 import { estimateTokens } from '../tokenize';
 import { jitteredBackoff, isRetryableNetworkError, isRetryableStatus } from '../retry';
 import { contextFillRatio, contextFillWarning, cacheMissWarning, DEFAULT_CONTEXT_WARN_THRESHOLD } from '../warnings';
 
-suite('usageMath.estimateCost', () => {
+suite('usageMath.calculateCost', () => {
     test('zero tokens cost zero', () => {
-        assert.equal(estimateCost(0, 0, 0, 'kimi-k3'), 0);
+        assert.equal(calculateCost(0, 0, 0, 'kimi-k3'), 0);
     });
 
     test('K3 uncached input + output', () => {
         // 1M uncached input @ $3 + 1M output @ $15 = $18
-        const cost = estimateCost(1_000_000, 1_000_000, 0, 'kimi-k3');
+        const cost = calculateCost(1_000_000, 1_000_000, 0, 'kimi-k3');
         assert.ok(Math.abs(cost - 18) < 1e-9, `expected ~18, got ${cost}`);
     });
 
     test('K3 cached tokens are charged at cached rate', () => {
         // 1M cached input @ $0.30 = $0.30, no output
-        const cost = estimateCost(1_000_000, 0, 1_000_000, 'kimi-k3');
+        const cost = calculateCost(1_000_000, 0, 1_000_000, 'kimi-k3');
         assert.ok(Math.abs(cost - 0.3) < 1e-9, `expected ~0.3, got ${cost}`);
     });
 
     test('unknown model falls back to default pricing', () => {
-        const cost = estimateCost(1_000_000, 0, 0, 'no-such-model');
+        const cost = calculateCost(1_000_000, 0, 0, 'no-such-model');
         assert.ok(Math.abs(cost - DEFAULT_PRICING.inputPricePer1M) < 1e-9);
     });
 

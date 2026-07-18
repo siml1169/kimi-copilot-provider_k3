@@ -7,6 +7,7 @@ import { jitteredBackoff, isRetryableNetworkError, isRetryableStatus, sleep } fr
 import { estimateTokens } from './tokenize';
 import { contextFillWarning, cacheMissWarning, type ThresholdWarning } from './warnings';
 import { classifyRequestKind, isReportableContextRequest } from './requestKind';
+import { SessionContextTracker } from './context-tracker';
 import type { KimiMessage, KimiTool, KimiToolCall, KimiRequest, KimiStreamChunk, KimiContentPart, ModelConfigOverride } from './types';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -24,7 +25,7 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     private readonly _onDidChange = new vscode.EventEmitter<void>();
     readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
-    private readonly outputChannel: vscode.LogOutputChannel;
+    readonly outputChannel: vscode.LogOutputChannel;
     private readonly disposables: vscode.Disposable[] = [];
     private usageTracker: UsageTracker | undefined;
     private lastModelId: string | undefined;
@@ -166,6 +167,32 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             testMode: extras?.testMode,
         });
 
+        // ── Context guard ──────────────────────────────────────────
+        // Estimate the session token count before sending and block if
+        // we're about to overflow the context window.
+        if (!extras?.testMode) {
+            const ctxTracker = new SessionContextTracker({
+                maxInputTokens: modelInfo.maxInputTokens,
+                warningThreshold: this.configManager.getContextWarnThreshold(),
+                errorThreshold: this.configManager.getContextErrorThreshold(),
+            });
+            const ctxEstimate = ctxTracker.estimate(request.messages);
+            this.outputChannel.info(
+                `Context estimate: ~${ctxEstimate.tokens.toLocaleString('en-US')} / ${ctxEstimate.limit.toLocaleString('en-US')} tokens (${Math.round(ctxEstimate.ratio * 100)}% — ${ctxEstimate.status})`,
+            );
+            this.usageTracker?.setContextStats(ctxEstimate);
+
+            if (ctxEstimate.status === 'exceeded' || ctxEstimate.status === 'critical') {
+                const guidance =
+                    ctxEstimate.status === 'exceeded'
+                        ? 'Start a new chat session, run "/compact", or remove files from the context.'
+                        : 'The context is almost full. Consider starting a new chat session or running "/compact" soon.';
+                throw new vscode.LanguageModelError(
+                    `Kimi context ${ctxEstimate.status}: ~${ctxEstimate.tokens.toLocaleString('en-US')} / ${ctxEstimate.limit.toLocaleString('en-US')} tokens (${Math.round(ctxEstimate.ratio * 100)}%).\n\n${guidance}`,
+                );
+            }
+        }
+
         this.outputChannel.info(
             `→ ${request.messages.length} messages + ${tools?.length ?? 0} tools → ${endpoint} (model: ${request.model})`,
         );
@@ -268,9 +295,8 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         this.maybeWarnContextFill(usage.prompt_tokens, maxInputTokens, modelId);
         this.maybeWarnCacheMiss();
 
-        // Opportunistically refresh balance after each request, using the same
-        // model's effective key so K3-keyed accounts get balance too.
-        this.refreshBalance(modelId).catch(() => { /* best-effort */ });
+        // Opportunistically refresh balance after each request (silent, debounced).
+        void this.refreshBalance(true);
     }
 
     // ── Guardrail warnings (context fill + cache miss) ─────────────
@@ -315,8 +341,14 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
     private lastBalanceFetch = 0;
     private static readonly BALANCE_DEBOUNCE_MS = 30_000;
 
-    /** Fetch current balance from Kimi API and update the status bar. Debounced. */
-    private async refreshBalance(modelId?: string): Promise<void> {
+    /**
+     * Fetch current balance from Kimi API and update the status bar.
+     * Debounced — parallel chat requests fire at most one call per 30s.
+     *
+     * @param silent When true, suppress the transient status-bar ack.
+     *               Used by the auto-refresh-after-chat path.
+     */
+    public async refreshBalance(silent = false): Promise<void> {
         const tracker = this.usageTracker;
         if (!tracker) return;
 
@@ -328,11 +360,8 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
         this.lastBalanceFetch = now;
 
         try {
-            // Use the same key the request succeeded with (K3 key for K3 models,
-            // main key otherwise) so a K3-only key setup still gets balance.
-            const apiKey = modelId
-                ? await this.configManager.getEffectiveApiKey(modelId)
-                : await this.configManager.getApiKey();
+            // Use the main key for balance; the command has no model context.
+            const apiKey = await this.configManager.getApiKey();
             if (!apiKey) {
                 this.outputChannel.debug('Balance fetch skipped: no API key available');
                 return;
@@ -357,6 +386,15 @@ export class KimiChatProvider implements vscode.LanguageModelChatProvider {
             const balance = data?.data?.available_balance;
             if (balance !== undefined) {
                 tracker.setBalance(balance);
+                if (!silent) {
+                    // Flash a transient ack next to the status bar so the user
+                    // sees the result immediately even if the click closed the
+                    // hover popup (matches DeepSeek V4 behaviour).
+                    void vscode.window.setStatusBarMessage(
+                        `$(check) Kimi balance: $${balance.toFixed(2)}`,
+                        4000,
+                    );
+                }
             } else {
                 this.outputChannel.warn(
                     'Balance fetch returned no available_balance field — status bar will show estimated cost instead',
@@ -680,6 +718,46 @@ export function convertTools(
 // Request building (pure — exported for testing)
 // ═══════════════════════════════════════════════════════════════════════
 
+/**
+ * Resolves the effective reasoning effort from Copilot Chat's Thinking
+ * Effort picker UI. The value flows through either `modelOptions` (the
+ * picker's own state) or `modelConfiguration`/`configuration` (the
+ * per-model config json-schema form).
+ *
+ * Precedence: UI picker > per-model config > model default > 'max'.
+ * Only used for reasoning-capable models (K3).
+ */
+export function resolveReasoningEffortFromOptions(
+	options: Record<string, unknown> | undefined,
+): 'low' | 'high' | 'max' | undefined {
+	if (!options) return undefined;
+
+	// The Thinking Effort picker writes to `modelOptions.reasoning_effort`
+	// (stable API) or `modelConfiguration.reasoningEffort` (proposed API).
+	const modelOptions = (options as { modelOptions?: Record<string, unknown> }).modelOptions;
+	if (modelOptions?.reasoning_effort) {
+		return normalizeEffort(String(modelOptions.reasoning_effort));
+	}
+
+	const ext = options as {
+		modelConfiguration?: Record<string, unknown>;
+		configuration?: Record<string, unknown>;
+	};
+	const configured = ext.modelConfiguration?.reasoningEffort ?? ext.configuration?.reasoningEffort;
+	if (typeof configured === 'string') {
+		return normalizeEffort(configured);
+	}
+
+	return undefined;
+}
+
+function normalizeEffort(value: string): 'low' | 'high' | 'max' {
+	const v = value.toLowerCase();
+	if (v === 'low' || v === 'none') return 'low';
+	if (v === 'high' || v === 'medium') return 'high';
+	return 'max'; // 'max', 'ultra', or unknown → max
+}
+
 export interface BuildRequestContext {
     modelInfo: vscode.LanguageModelChatInformation;
     messages: readonly vscode.LanguageModelChatRequestMessage[];
@@ -743,7 +821,9 @@ export function buildKimiRequest(ctx: BuildRequestContext): { request: KimiReque
 
     if (isK3) {
         // K3: always-on reasoning via reasoning_effort, not thinking.
-        request.reasoning_effort = modelDefaults?.reasoning_effort ?? 'max';
+        // Precedence: Copilot Chat UI picker → per-model config → model default → 'max'.
+        const uiEffort = resolveReasoningEffortFromOptions(options as unknown as Record<string, unknown>);
+        request.reasoning_effort = uiEffort ?? modelConfig.reasoningEffort ?? modelDefaults?.reasoning_effort ?? 'max';
         // K3 fixed top_p.
         request.top_p = 0.95;
     } else if (thinking) {

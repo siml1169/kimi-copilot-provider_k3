@@ -8,7 +8,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_PRICING = exports.PRICING = void 0;
-exports.estimateCost = estimateCost;
+exports.calculateCost = calculateCost;
 exports.cacheHitRate = cacheHitRate;
 exports.formatTokens = formatTokens;
 exports.formatCost = formatCost;
@@ -53,8 +53,8 @@ exports.DEFAULT_PRICING = {
     cachedInputPricePer1M: 0.25,
 };
 // ── Cost Calculation ─────────────────────────────────────────────────
-/** Calculate the estimated cost for a single request. */
-function estimateCost(promptTokens, completionTokens, cachedTokens, modelId) {
+/** Calculate the exact cost from API-reported token counts using published pricing. */
+function calculateCost(promptTokens, completionTokens, cachedTokens, modelId) {
     const pricing = exports.PRICING[modelId] ?? exports.DEFAULT_PRICING;
     const cachedPrice = pricing.cachedInputPricePer1M ?? pricing.inputPricePer1M;
     // Cached tokens cost less for input
@@ -84,7 +84,7 @@ function formatCost(usd) {
     return `$${usd.toFixed(6)}`;
 }
 function formatUsageSummary(record) {
-    const cost = estimateCost(record.promptTokens, record.completionTokens, record.cachedTokens ?? 0, record.model);
+    const cost = calculateCost(record.promptTokens, record.completionTokens, record.cachedTokens ?? 0, record.model);
     const cacheRate = cacheHitRate(record.cachedTokens ?? 0, record.promptTokens);
     const parts = [
         `🔢 ${formatTokens(record.promptTokens)}→${formatTokens(record.completionTokens)}`,

@@ -7,8 +7,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const configManager = new ConfigurationManager(context.secrets);
     const provider = new KimiChatProvider(configManager);
 
-    // Wire up usage tracking
+    // Boot message — matches DeepSeek V4 pattern so the output channel is
+    // never empty, even before the first chat request.
+    const extVersion = (context.extension.packageJSON as { version?: string }).version ?? 'unknown';
+    provider.outputChannel.info(`[boot] ext=${extVersion} vscode=${vscode.version}`);
+
+    // Wire up usage tracking — share the provider's output channel so the
+    // status-bar "Show Log" click reveals the same channel.
     const usageTracker = new UsageTracker(context.workspaceState);
+    usageTracker.setOutputChannel(provider.outputChannel);
     provider.setUsageTracker(usageTracker);
     context.subscriptions.push(usageTracker);
 
@@ -231,7 +238,7 @@ function registerCommands(
                 `| Cache hit rate | ${stats.cacheHitRate.toFixed(1)}% |`,
                 `| **Total cost** | **${formatCost(stats.totalCost)}** |`,
                 ``,
-                `_Costs are estimated based on published Kimi pricing._`,
+                `_Costs are calculated from API-reported token counts using published Kimi pricing._`,
             ].join('\n');
 
             const doc = await vscode.workspace.openTextDocument({
@@ -251,6 +258,16 @@ function registerCommands(
                 usageTracker.reset();
                 vscode.window.showInformationMessage('Kimi usage stats reset.');
             }
+        }),
+
+        // Status-bar click → reveal the output channel (matches DeepSeek V4 behaviour).
+        vscode.commands.registerCommand('kimi3-copilot.showLog', () => {
+            provider.outputChannel.show();
+        }),
+
+        // Tooltip "refresh" link → re-fetch balance from the API.
+        vscode.commands.registerCommand('kimi3-copilot.refreshBalance', async () => {
+            await provider.refreshBalance();
         }),
     );
 }

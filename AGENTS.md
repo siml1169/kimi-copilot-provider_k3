@@ -47,21 +47,24 @@ Source layout (post-refactor):
 
 ```
 src/
-├── config.ts      # ConfigurationManager: settings + SecretStorage API keys
-├── extension.ts   # activate(): registers provider and commands
-├── models.ts      # Model registry + LanguageModelChatInformation mapping
-├── provider.ts    # KimiChatProvider + message/tool/request conversion (vscode-bound)
-├── usageMath.ts   # Pure pricing/cost/format math (no vscode — plain-Node testable)
-├── usage.ts       # UsageTracker (status bar, daily aggregation) — re-exports usageMath
-├── tokenize.ts    # Pure CJK-aware token estimator (no vscode)
-├── retry.ts       # Pure retry/backoff helpers (no vscode)
-├── warnings.ts    # Pure context-fill + cache-miss threshold logic (no vscode)
-├── thinking.ts    # LanguageModelThinkingPart shim (runtime reflection)
-└── types.ts       # Shared API and model types
+├── config.ts          # ConfigurationManager: settings + SecretStorage API keys
+├── context-tracker.ts # SessionContextTracker: pre-send context estimate + overflow guard (no vscode)
+├── extension.ts       # activate(): registers provider and commands
+├── models.ts          # Model registry + LanguageModelChatInformation mapping
+├── provider.ts        # KimiChatProvider + message/tool/request conversion (vscode-bound)
+├── requestKind.ts     # Request classifier for native gauge reporting (no vscode)
+├── usageMath.ts       # Pure pricing/cost/format math (no vscode — plain-Node testable)
+├── usage.ts           # UsageTracker (status bar, daily aggregation) — re-exports usageMath
+├── tokenize.ts        # Pure CJK-aware token estimator (no vscode)
+├── retry.ts           # Pure retry/backoff helpers (no vscode)
+├── warnings.ts        # Pure context-fill + cache-miss threshold logic (no vscode)
+├── thinking.ts        # LanguageModelThinkingPart shim (runtime reflection)
+└── types.ts           # Shared API and model types
 ```
 
-Pure modules (`usageMath`, `tokenize`, `retry`, `warnings`) deliberately avoid importing
-`vscode` so they can be unit-tested in plain Node without the Extension Host.
+Pure modules (`usageMath`, `tokenize`, `retry`, `warnings`, `requestKind`, `context-tracker`)
+deliberately avoid importing `vscode` so they can be unit-tested in plain Node without the
+Extension Host.
 
 ## Guardrail Warnings (1.5.3)
 
@@ -77,7 +80,7 @@ Two non-blocking, per-session-de-duplicated warnings (settings under `kimi3Copil
 Both warn once per threshold-bucket via `showWarningOnce` in `provider.ts` and log to the output
 channel. Toggle with `warnOnContextFill` / `warnOnCacheMiss`.
 
-## Session Info / context-usage gauge integration (1.6.0)
+## Session Info / context-usage gauge integration
 
 VS Code 1.109+ renders a context-usage gauge ("Session Info" popover,
 `workbench.action.chat.showContextUsage`). Provider-side integration surface:
@@ -94,10 +97,21 @@ VS Code 1.109+ renders a context-usage gauge ("Session Info" popover,
 - On a picked tier, `toChatInfo` clamps reported `maxInputTokens` so Copilot's trimming, the
   gauge, and the fill warning all agree. `doChatRequest` additionally `min()`s the warning
   denominator with `modelConfiguration.contextSize` as a fallback.
-- **Numerator (used tokens) cannot be fed**: Copilot Chat's `extChatEndpoint.ts` hardcodes
-  `usage: {prompt_tokens: 0, …}` for third-party providers; `stream.usage()` belongs to the
-  `chatParticipantAdditions` proposal (chat-participant owners only). Our context-fill warning is
-  the only real-usage surfacing until VS Code adds a provider usage channel.
+- **Numerator (used tokens)** — fed by emitting `vscode.LanguageModelDataPart.json(usage, 'usage')`
+  after each response (`tryReportNativeUsage` in `provider.ts`), the same mechanism as the
+  DeepSeek V4 provider. Only real conversation turns are reported: `requestKind.ts`
+  (`classifyRequestKind` + `isReportableContextRequest`) filters out auxiliary Copilot requests
+  (chat-title, todo-tracker, git-commit, etc.) whose tiny prompts would clobber the gauge.
+
+## Pre-send context guard (1.5.6)
+
+`SessionContextTracker` (`context-tracker.ts`, vscode-free) estimates the outgoing request's
+tokens (text parts via `estimateTokens`, images ~85 fixed, tool calls serialized) before sending:
+
+- `warning` at `contextWarnThreshold` (default 0.8) — logged; shown in status bar + tooltip.
+- `critical` at `contextErrorThreshold` (default 0.95) or `exceeded` at ≥100% — the request is
+  **refused** by throwing `LanguageModelError` with fresh-chat / `/compact` guidance. Test
+  Connection (`testMode`) skips the guard. `usage.ts#setContextStats` renders the estimate.
 
 ## Per-Model Configuration
 
